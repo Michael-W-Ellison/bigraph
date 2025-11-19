@@ -36,7 +36,7 @@ class SymbolGenerator:
         self.symbol_size = 100  # SVG viewBox size
         self.line_width = 3
         self.margin = 15
-        self.extension_length = 15  # SHORT extensions to prevent crossing
+        self.extension_length = 25  # Visible extensions matching spec examples (T, L, E, K)
 
     def generate_all_symbols(self) -> List[str]:
         """
@@ -88,37 +88,53 @@ class SymbolGenerator:
                 configs.append(config)
 
         # 2. Single extension configurations
-        # Use more positions and angles for variety
+        # THREE positions, TWO angles, one or both sides (per spec)
         for orientation in ['vertical', 'horizontal']:
-            for position in ['start', 'quarter', 'middle', 'threequarter', 'end']:
+            for position in ['start', 'middle', 'end']:  # THREE equally spaced positions
                 if orientation == 'vertical':
-                    directions = ['left', 'right']
+                    direction_options = ['left', 'right', 'both']  # Can be on both sides
                 else:
-                    directions = ['up', 'down']
+                    direction_options = ['up', 'down', 'both']
 
-                for direction in directions:
-                    for angle in [90, 45, 30, 60]:  # More angle varieties
-                        config = {
-                            'orientation': orientation,
-                            'extensions': [{
-                                'position': position,
-                                'direction': direction,
-                                'angle': angle
-                            }]
-                        }
+                for direction in direction_options:
+                    for angle in [90, 45]:  # Only perpendicular or 45° diagonal
+                        if direction == 'both':
+                            # Both sides means two extensions at same position
+                            if orientation == 'vertical':
+                                exts = [
+                                    {'position': position, 'direction': 'left', 'angle': angle},
+                                    {'position': position, 'direction': 'right', 'angle': angle}
+                                ]
+                            else:
+                                exts = [
+                                    {'position': position, 'direction': 'up', 'angle': angle},
+                                    {'position': position, 'direction': 'down', 'angle': angle}
+                                ]
+                            config = {
+                                'orientation': orientation,
+                                'extensions': exts
+                            }
+                        else:
+                            config = {
+                                'orientation': orientation,
+                                'extensions': [{
+                                    'position': position,
+                                    'direction': direction,
+                                    'angle': angle
+                                }]
+                            }
                         config_hash = self._hash_config(config)
                         if config_hash not in config_set:
                             config_set.add(config_hash)
                             configs.append(config)
 
-        # 3. Two extensions at different positions
-        # With 15px extensions, crossing is not a concern
-        # Use subset of combinations to get to 718 total
+        # 3. Two and more extensions at different positions or with "both sides"
         for orientation in ['vertical', 'horizontal']:
-            all_positions = ['start', 'quarter', 'middle', 'threequarter', 'end']
-            # Generate pairs of positions
+            all_positions = ['start', 'middle', 'end']  # THREE positions only
+
+            # First: pairs of different positions
             for i, pos1 in enumerate(all_positions):
-                for pos2 in all_positions[i+1:]:  # Only pairs where pos2 comes after pos1
+                for pos2 in all_positions[i+1:]:
                     if orientation == 'vertical':
                         directions = ['left', 'right']
                     else:
@@ -126,7 +142,7 @@ class SymbolGenerator:
 
                     for dir1 in directions:
                         for dir2 in directions:
-                            for angle1 in [90, 45]:  # Limit angles for two-extension
+                            for angle1 in [90, 45]:
                                 for angle2 in [90, 45]:
                                     config = {
                                         'orientation': orientation,
@@ -140,8 +156,38 @@ class SymbolGenerator:
                                         config_set.add(config_hash)
                                         configs.append(config)
 
+            # Second: one position with both sides (can be different angles), plus another position
+            for pos1 in all_positions:
+                for pos2 in all_positions:
+                    if pos1 != pos2:
+                        # Can have different angles on each side
+                        for angle_left in [90, 45]:
+                            for angle_right in [90, 45]:
+                                if orientation == 'vertical':
+                                    exts_both = [
+                                        {'position': pos1, 'direction': 'left', 'angle': angle_left},
+                                        {'position': pos1, 'direction': 'right', 'angle': angle_right}
+                                    ]
+                                    dir_options = ['left', 'right']
+                                else:
+                                    exts_both = [
+                                        {'position': pos1, 'direction': 'up', 'angle': angle_left},
+                                        {'position': pos1, 'direction': 'down', 'angle': angle_right}
+                                    ]
+                                    dir_options = ['up', 'down']
+
+                                for dir2 in dir_options:
+                                    for angle2 in [90, 45]:
+                                        config = {
+                                            'orientation': orientation,
+                                            'extensions': exts_both + [{'position': pos2, 'direction': dir2, 'angle': angle2}]
+                                        }
+                                        config_hash = self._hash_config(config)
+                                        if config_hash not in config_set:
+                                            config_set.add(config_hash)
+                                            configs.append(config)
+
         # 4. Three extensions at all three positions
-        # With 15px extensions, all combinations are safe
         for orientation in ['vertical', 'horizontal']:
             if orientation == 'vertical':
                 directions = ['left', 'right']
@@ -167,7 +213,44 @@ class SymbolGenerator:
                                         config_set.add(config_hash)
                                         configs.append(config)
 
-        # 5. If still need more, add safe random variations with varied extension lengths
+        # 4.5. More complex "both sides" configurations
+        for orientation in ['vertical', 'horizontal']:
+            all_positions = ['start', 'middle', 'end']
+
+            # Two positions, each with "both sides" (4 total extensions)
+            for i, pos1 in enumerate(all_positions):
+                for pos2 in all_positions[i+1:]:
+                    for angle1_left in [90, 45]:
+                        for angle1_right in [90, 45]:
+                            for angle2_left in [90, 45]:
+                                for angle2_right in [90, 45]:
+                                    if orientation == 'vertical':
+                                        exts = [
+                                            {'position': pos1, 'direction': 'left', 'angle': angle1_left},
+                                            {'position': pos1, 'direction': 'right', 'angle': angle1_right},
+                                            {'position': pos2, 'direction': 'left', 'angle': angle2_left},
+                                            {'position': pos2, 'direction': 'right', 'angle': angle2_right}
+                                        ]
+                                    else:
+                                        exts = [
+                                            {'position': pos1, 'direction': 'up', 'angle': angle1_left},
+                                            {'position': pos1, 'direction': 'down', 'angle': angle1_right},
+                                            {'position': pos2, 'direction': 'up', 'angle': angle2_left},
+                                            {'position': pos2, 'direction': 'down', 'angle': angle2_right}
+                                        ]
+                                    config = {
+                                        'orientation': orientation,
+                                        'extensions': exts
+                                    }
+                                    config_hash = self._hash_config(config)
+                                    if config_hash not in config_set:
+                                        config_set.add(config_hash)
+                                        configs.append(config)
+
+                                    if len(configs) >= count:
+                                        return configs
+
+        # 5. If still need more, add safe random variations
         attempts = 0
         max_attempts = 50000  # Increased attempts
         while len(configs) < count and attempts < max_attempts:
@@ -178,37 +261,44 @@ class SymbolGenerator:
                 configs.append(config)
             attempts += 1
 
-        # 6. If still not enough, duplicate some with variation
-        while len(configs) < count:
-            # Take existing configs and add slight variations
-            base_config = configs[len(configs) % len(configs)]
-            config = {
-                'orientation': base_config['orientation'],
-                'extensions': base_config['extensions'].copy()
-            }
-            # Add a small random extension if possible
-            if len(config['extensions']) < 3:
-                pos_options = ['start', 'quarter', 'middle', 'threequarter', 'end']
-                used_positions = [e['position'] for e in config['extensions']]
-                available = [p for p in pos_options if p not in used_positions]
-                if available:
-                    new_ext = {
-                        'position': random.choice(available),
-                        'direction': random.choice(['left', 'right'] if config['orientation'] == 'vertical' else ['up', 'down']),
-                        'angle': random.choice([90, 45, 30, 60])
-                    }
-                    config['extensions'].append(new_ext)
-                    config_hash = self._hash_config(config)
-                    if config_hash not in config_set:
-                        config_set.add(config_hash)
-                        configs.append(config)
+        # 6. If still not enough, create more complex unique variations
+        safety_counter = 0
+        max_safety = 10000
+        while len(configs) < count and safety_counter < max_safety:
+            safety_counter += 1
+
+            # Create complex configs with 4-6 extensions
+            orientation = random.choice(['vertical', 'horizontal'])
+            all_positions = ['start', 'middle', 'end']
+
+            # Randomly pick 2-3 positions
+            num_positions = random.randint(2, 3)
+            positions = random.sample(all_positions, num_positions)
+
+            exts = []
+            for pos in positions:
+                # Decide if this position gets "both sides" or one side
+                if random.random() < 0.5:  # 50% chance of "both sides"
+                    if orientation == 'vertical':
+                        exts.append({'position': pos, 'direction': 'left', 'angle': random.choice([90, 45])})
+                        exts.append({'position': pos, 'direction': 'right', 'angle': random.choice([90, 45])})
                     else:
-                        # If duplicate, just add a simple unique one
-                        configs.append(self._generate_safe_random_config())
-                else:
-                    configs.append(self._generate_safe_random_config())
-            else:
-                configs.append(self._generate_safe_random_config())
+                        exts.append({'position': pos, 'direction': 'up', 'angle': random.choice([90, 45])})
+                        exts.append({'position': pos, 'direction': 'down', 'angle': random.choice([90, 45])})
+                else:  # One side only
+                    if orientation == 'vertical':
+                        exts.append({'position': pos, 'direction': random.choice(['left', 'right']), 'angle': random.choice([90, 45])})
+                    else:
+                        exts.append({'position': pos, 'direction': random.choice(['up', 'down']), 'angle': random.choice([90, 45])})
+
+            config = {
+                'orientation': orientation,
+                'extensions': exts
+            }
+            config_hash = self._hash_config(config)
+            if config_hash not in config_set:
+                config_set.add(config_hash)
+                configs.append(config)
 
         return configs
 
@@ -249,7 +339,7 @@ class SymbolGenerator:
         return False  # Default to allowing
 
     def _generate_safe_random_config(self) -> Dict:
-        """Generate a random configuration that avoids crossing"""
+        """Generate a random configuration per spec"""
         orientation = random.choice(['vertical', 'horizontal'])
         num_extensions = random.randint(0, 3)
 
@@ -261,14 +351,14 @@ class SymbolGenerator:
         else:
             directions = ['up', 'down']
 
-        # Use all available positions and angles
-        all_positions = ['start', 'quarter', 'middle', 'threequarter', 'end']
+        # THREE positions only
+        all_positions = ['start', 'middle', 'end']
         positions = random.sample(all_positions, min(num_extensions, len(all_positions)))
 
         extensions = []
         for pos in positions:
-            direction = random.choice(directions)  # Allow mixed directions
-            angle = random.choice([90, 45, 30, 60])
+            direction = random.choice(directions)
+            angle = random.choice([90, 45])  # Only 90° or 45°
             extensions.append({
                 'position': pos,
                 'direction': direction,
@@ -341,15 +431,11 @@ class SymbolGenerator:
         line_width = self.line_width
         ext_length = self.extension_length
 
-        # Determine y position on primary line
+        # Determine y position on primary line (THREE positions only)
         if ext['position'] == 'start':
             y = y1
-        elif ext['position'] == 'quarter':
-            y = y1 + (y2 - y1) * 0.25
         elif ext['position'] == 'middle':
             y = (y1 + y2) / 2
-        elif ext['position'] == 'threequarter':
-            y = y1 + (y2 - y1) * 0.75
         else:  # end
             y = y2
 
@@ -357,31 +443,32 @@ class SymbolGenerator:
         angle = ext['angle']
 
         # Calculate end point based on direction and angle
-        import math
         if direction == 'left':
             if angle == 90:  # Perpendicular left
                 x2 = x - ext_length
                 y2 = y
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                x2 = x - ext_length * math.cos(angle_rad)
-                # Alternate up/down based on position
-                if ext['position'] in ['start', 'quarter']:
-                    y2 = y - ext_length * math.sin(angle_rad)  # Up
-                else:
-                    y2 = y + ext_length * math.sin(angle_rad)  # Down
+            else:  # 45° diagonal
+                x2 = x - ext_length
+                # True 45° angle means equal horizontal and vertical distance
+                if ext['position'] == 'start':
+                    y2 = y - ext_length  # Up-left diagonal
+                elif ext['position'] == 'end':
+                    y2 = y + ext_length  # Down-left diagonal
+                else:  # middle - go up
+                    y2 = y - ext_length  # Up-left diagonal
         else:  # right
             if angle == 90:  # Perpendicular right
                 x2 = x + ext_length
                 y2 = y
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                x2 = x + ext_length * math.cos(angle_rad)
-                # Alternate up/down based on position
-                if ext['position'] in ['start', 'quarter']:
-                    y2 = y - ext_length * math.sin(angle_rad)  # Up
-                else:
-                    y2 = y + ext_length * math.sin(angle_rad)  # Down
+            else:  # 45° diagonal
+                x2 = x + ext_length
+                # True 45° angle means equal horizontal and vertical distance
+                if ext['position'] == 'start':
+                    y2 = y - ext_length  # Up-right diagonal
+                elif ext['position'] == 'end':
+                    y2 = y + ext_length  # Down-right diagonal
+                else:  # middle - go up
+                    y2 = y - ext_length  # Up-right diagonal
 
         return f'<line x1="{x}" y1="{y}" x2="{x2}" y2="{y2}" ' \
                f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>'
@@ -391,15 +478,11 @@ class SymbolGenerator:
         line_width = self.line_width
         ext_length = self.extension_length
 
-        # Determine x position on primary line
+        # Determine x position on primary line (THREE positions only)
         if ext['position'] == 'start':
             x = x1
-        elif ext['position'] == 'quarter':
-            x = x1 + (x2 - x1) * 0.25
         elif ext['position'] == 'middle':
             x = (x1 + x2) / 2
-        elif ext['position'] == 'threequarter':
-            x = x1 + (x2 - x1) * 0.75
         else:  # end
             x = x2
 
@@ -407,31 +490,32 @@ class SymbolGenerator:
         angle = ext['angle']
 
         # Calculate end point based on direction and angle
-        import math
         if direction == 'up':
             if angle == 90:  # Perpendicular up
                 x2 = x
                 y2 = y - ext_length
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                y2 = y - ext_length * math.sin(angle_rad)
-                # Alternate left/right based on position
-                if ext['position'] in ['start', 'quarter']:
-                    x2 = x + ext_length * math.cos(angle_rad)  # Right
-                else:
-                    x2 = x - ext_length * math.cos(angle_rad)  # Left
+            else:  # 45° diagonal
+                y2 = y - ext_length
+                # True 45° angle means equal horizontal and vertical distance
+                if ext['position'] == 'start':
+                    x2 = x + ext_length  # Up-right diagonal
+                elif ext['position'] == 'end':
+                    x2 = x - ext_length  # Up-left diagonal
+                else:  # middle - go right
+                    x2 = x + ext_length  # Up-right diagonal
         else:  # down
             if angle == 90:  # Perpendicular down
                 x2 = x
                 y2 = y + ext_length
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                y2 = y + ext_length * math.sin(angle_rad)
-                # Alternate left/right based on position
-                if ext['position'] in ['start', 'quarter']:
-                    x2 = x + ext_length * math.cos(angle_rad)  # Right
-                else:
-                    x2 = x - ext_length * math.cos(angle_rad)  # Left
+            else:  # 45° diagonal
+                y2 = y + ext_length
+                # True 45° angle means equal horizontal and vertical distance
+                if ext['position'] == 'start':
+                    x2 = x + ext_length  # Down-right diagonal
+                elif ext['position'] == 'end':
+                    x2 = x - ext_length  # Down-left diagonal
+                else:  # middle - go right
+                    x2 = x + ext_length  # Down-right diagonal
 
         return f'<line x1="{x}" y1="{y}" x2="{x2}" y2="{y2}" ' \
                f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>'
