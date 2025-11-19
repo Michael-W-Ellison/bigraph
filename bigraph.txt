@@ -1,0 +1,63 @@
+I would like to create a new type of substitution cryptograph. It involves creating symbols for letter combinations. Aa, ab, ac, ad, ae, etc., and the new symbols are used to write words. For words that do not have an even number of letter, a "|" symbol can be used to designate the last letter is only the first half of the next symbol is used, if the | symbol comes before the symbol, or that only the last letter in of the combined symbol is used if the | comes after the letter.
+Spaces and Sentence Endings
+
+The seven rare bigrams (JQ, QG, QK, QY, QZ, WQ, WZ) will be used as dynamic space markers.
+
+Two consecutive markers (e.g., JQ QY) indicate the end of a sentence.
+
+Spaces and sentence markers will rotate among the seven to avoid creating patterns.
+
+Reusing Symbols for Final Letters
+
+If the last letter of a word exists earlier in the same word, reuse the first occurrence of its bigram.
+
+If the last letter is not found, default to a consistent symbol (e.g., "SA").
+
+Rotating Symbols for Standalone Words ("A", "I")
+
+Each isolated "A" and "I" will cycle through the bigram list:
+
+First occurrence: | + symbol for "AA"
+
+Second occurrence: | + symbol for "AB"
+
+Third occurrence: | + symbol for "AC"
+
+This prevents predictable patterns for "A" and "I".
+
+generate 676 unique symbols using a primary line (either horizontal or vertical) and intersecting lines that extend from it at controlled angles. These symbols will be:
+
+Primary line:
+
+Vertical (|) or horizontal (—)
+
+Intersecting lines:
+
+Placed at three equally spaced positions (both ends and middle of the primary line).
+
+Can extend perpendicularly (90°) or at a 45° angle.
+
+Extend from one or both sides of the primary line.
+
+No intersecting or crossing of other lines.
+
+Example Symbols
+
+T = Vertical primary line with one perpendicular extension at the top.
+
+L = Vertical primary line with one perpendicular extension at the bottom.
+
+E = Vertical primary line with three perpendicular extensions on one side.
+
+K = Vertical primary line with two diagonal extensions.
+
+The line-based symbol system should be fully implemented for:
+
+Bigrams (AA-ZZ)
+
+Numbers (0-9)
+
+*Mathematical operators (+, -, , /)
+
+Special characters (!@#$%^&*()=<>?)
+
