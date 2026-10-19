@@ -24,7 +24,7 @@ Symbols are generated as SVG graphics with the following structure:
 1. Systematic generation of configurations
 2. Random variations if more symbols needed
 3. Each symbol is uniquely identified by its configuration
-4. Total symbols needed: ~718 (676 bigrams + numbers + special chars)
+4. Total symbols needed: 721 (676 bigrams + numbers + special chars + math operators)
 
 ### 2. Key Management
 
@@ -61,6 +61,7 @@ Symbols are generated as SVG graphics with the following structure:
 - **Numbers**: 0-9 (positive for multiplication)
 - **Negative Numbers**: -0 through -9 (for division)
 - **Special Characters**: !@#$%^&*()=<>?
+- **Math Operators**: + - / (`*` is a special character)
 - **Space Markers**: JQ, QG, QK, QY, QZ, WQ, WZ
 - **MULDIV Marker**: Separates operands in math expressions
 
@@ -151,12 +152,30 @@ Example: [JQ, QG]
 
 **Mathematical Expressions**:
 ```
+Addition: 2 + 3 → [symbol(2), symbol(+), symbol(3)]
+Subtraction: 5 - 1 → [symbol(5), symbol(-), symbol(1)]
 Multiplication: 2 * 3 → [symbol(2), symbol(MULDIV), symbol(3)]
 Division: 6 / 2 → [symbol(6), symbol(MULDIV), symbol(-2)]
 ```
 
 - Positive numbers after MULDIV = multiplication
 - Negative numbers after MULDIV = division
+- Other operators produce no symbols
+
+#### 3.7 Special Characters
+
+Special characters and math operators in text are encoded as their own
+symbols. They split a word into segments, and each segment is encoded with
+the normal word rules:
+```
+$5 → [symbol($), symbol(5)]
+X+Y → [|XA, symbol(+), |YA]
+```
+
+- Sentence-ending `.`, `!` and `?` are represented by the sentence end marker
+  and are not encoded as special characters
+- Characters that are not letters, digits, special characters or math
+  operators (for example `,` and `'`) are dropped
 
 ### 4. Decoding Engine
 

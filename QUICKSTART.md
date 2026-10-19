@@ -73,6 +73,8 @@ print(decoded)  # HELLO WORLD
 
 ### 1. Mathematical Expressions
 ```python
+encoder.encode_math_expression("2 + 3")  # Addition
+encoder.encode_math_expression("5 - 1")  # Subtraction
 encoder.encode_math_expression("2 * 3")  # Multiplication
 encoder.encode_math_expression("6 / 2")  # Division
 ```

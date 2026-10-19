@@ -113,7 +113,7 @@ class SymbolGenerator:
 
         # 3. Two extensions at different positions
         # With 15px extensions, crossing is not a concern
-        # Use subset of combinations to get to 718 total
+        # Use subset of combinations to get to TOTAL_SYMBOLS
         for orientation in ['vertical', 'horizontal']:
             all_positions = ['start', 'quarter', 'middle', 'threequarter', 'end']
             # Generate pairs of positions

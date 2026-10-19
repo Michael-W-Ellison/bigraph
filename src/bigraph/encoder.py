@@ -9,7 +9,8 @@ and number handling.
 import re
 from typing import List, Tuple, Dict, Optional
 from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
-                       DEFAULT_FINAL_BIGRAM, LETTERS)
+                       DEFAULT_FINAL_BIGRAM, LETTERS, SPECIAL_CHARS,
+                       MATH_OPERATORS)
 from .key_manager import KeyManager
 
 
@@ -124,6 +125,11 @@ class BigramEncoder:
         """
         result = []
 
+        # The sentence-ending punctuation is represented by the sentence end
+        # marker, so it is not encoded as a special character
+        if sentence and sentence[-1] in '.!?':
+            sentence = sentence[:-1]
+
         # Split into words and handle each word
         words = sentence.split()
 
@@ -142,15 +148,45 @@ class BigramEncoder:
         """
         Encode a single word
 
+        Special characters and math operators split the word into segments.
+        Each segment is encoded separately, and each special character or
+        operator is encoded as its own symbol. Other characters are dropped.
+
         Args:
             word: Word to encode
 
         Returns:
             List of symbol indices
         """
-        # Remove punctuation and special characters for now (handle separately if needed)
-        # Keep only letters and numbers
-        clean_word = ''.join(c for c in word if c.isalnum())
+        result = []
+        segment = ''
+
+        for c in word:
+            if c.isalnum():
+                segment += c
+            elif c in SPECIAL_CHARS or c in MATH_OPERATORS:
+                result.extend(self._encode_segment(segment))
+                segment = ''
+
+                symbol = self.key_manager.get_symbol_for_special(self.key, c)
+                if symbol is not None:
+                    result.append(symbol)
+
+        result.extend(self._encode_segment(segment))
+
+        return result
+
+    def _encode_segment(self, segment: str) -> List[int]:
+        """
+        Encode a run of letters and digits
+
+        Args:
+            segment: Characters of a word between special characters
+
+        Returns:
+            List of symbol indices
+        """
+        clean_word = segment
 
         if not clean_word:
             return []
@@ -301,19 +337,22 @@ class BigramEncoder:
         Encode a mathematical expression
 
         Format: number [op] number
-        Where op is * or /
+        Where op is +, -, * or /
+        - Addition and subtraction use the + and - operator symbols
         - Multiplication uses positive numbers
         - Division uses negative numbers
         - A special multiply/divide symbol separates operands
 
-        Example: "2 * 3" -> [symbol(2), symbol(MULDIV), symbol(3)]
+        Example: "2 + 3" -> [symbol(2), symbol(+), symbol(3)]
+                 "5 - 1" -> [symbol(5), symbol(-), symbol(1)]
+                 "2 * 3" -> [symbol(2), symbol(MULDIV), symbol(3)]
                  "6 / 2" -> [symbol(6), symbol(MULDIV), symbol(-2)]
 
         Args:
             expression: Math expression string
 
         Returns:
-            List of symbol indices
+            List of symbol indices (empty if the operator is not supported)
         """
         result = []
 
@@ -328,6 +367,9 @@ class BigramEncoder:
         operator = parts[1]
         num2 = parts[2]
 
+        if operator not in ('+', '-', '*', '/'):
+            return result
+
         # Encode first number (always positive)
         for digit in num1:
             if digit.isdigit():
@@ -335,10 +377,16 @@ class BigramEncoder:
                 if symbol is not None:
                     result.append(symbol)
 
-        # Add multiply/divide indicator
-        muldiv_symbol = self.key_manager.get_muldiv_symbol(self.key)
-        if muldiv_symbol is not None:
-            result.append(muldiv_symbol)
+        if operator in ('+', '-'):
+            # Add the operator symbol
+            op_symbol = self.key_manager.get_symbol_for_special(self.key, operator)
+            if op_symbol is not None:
+                result.append(op_symbol)
+        else:
+            # Add multiply/divide indicator
+            muldiv_symbol = self.key_manager.get_muldiv_symbol(self.key)
+            if muldiv_symbol is not None:
+                result.append(muldiv_symbol)
 
         # Encode second number
         # If division, use negative; if multiplication, use positive
@@ -347,7 +395,7 @@ class BigramEncoder:
                 if operator == '/':
                     # Use negative number
                     symbol = self.key_manager.get_symbol_for_number(self.key, -int(digit))
-                else:  # multiplication
+                else:  # addition, subtraction, or multiplication
                     # Use positive number
                     symbol = self.key_manager.get_symbol_for_number(self.key, int(digit))
 

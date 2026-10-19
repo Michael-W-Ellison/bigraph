@@ -10,8 +10,8 @@ import random
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
-from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, DIGITS,
-                       MULTIPLY_DIVIDE_MARKER, TOTAL_SYMBOLS)
+from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
+                       DIGITS, MULTIPLY_DIVIDE_MARKER, TOTAL_SYMBOLS)
 from .symbols import SymbolGenerator
 
 
@@ -63,6 +63,9 @@ class KeyManager:
 
         # Add special characters
         items.extend([f"SPECIAL_{char}" for char in SPECIAL_CHARS])
+
+        # Add mathematical operators (stored as special characters)
+        items.extend([f"SPECIAL_{op}" for op in MATH_OPERATORS])
 
         # Add space markers
         items.extend([f"SPACE_{marker}" for marker in SPACE_MARKERS])
@@ -217,11 +220,11 @@ class KeyManager:
 
     def get_symbol_for_special(self, key: Dict, char: str) -> Optional[int]:
         """
-        Get the symbol index for a special character
+        Get the symbol index for a special character or math operator
 
         Args:
             key: Key dictionary
-            char: Special character
+            char: Special character or math operator
 
         Returns:
             Symbol index or None if not found

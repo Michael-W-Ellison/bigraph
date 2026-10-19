@@ -88,6 +88,61 @@ def test_encode_math_expression(test_key):
     assert len(div_encoded) > 0
 
 
+def test_encode_math_addition_subtraction(test_key):
+    """Test encoding addition and subtraction expressions"""
+    encoder = BigramEncoder(test_key)
+    decoder = BigramDecoder(test_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    add_encoded = encoder.encode_math_expression("12 + 3")
+    assert km.get_symbol_for_special(test_key, '+') in add_encoded
+    assert decoder.decode(add_encoded) == "12+3"
+
+    sub_encoded = encoder.encode_math_expression("12 - 3")
+    assert km.get_symbol_for_special(test_key, '-') in sub_encoded
+    assert decoder.decode(sub_encoded) == "12-3"
+
+
+def test_encode_math_unsupported_operator(test_key):
+    """Test that an unsupported operator produces no symbols"""
+    encoder = BigramEncoder(test_key)
+
+    assert encoder.encode_math_expression("2 x 3") == []
+
+
+def test_encode_decode_special_characters(test_key):
+    """Test encoding and decoding special characters in text"""
+    encoder = BigramEncoder(test_key)
+    decoder = BigramDecoder(test_key)
+
+    plaintext = "EMAIL ME @ (HOME) #1 = 50% & $5 MORE^2 <3 > 2 *"
+    decoded = decoder.decode(encoder.encode(plaintext))
+
+    assert decoded == plaintext
+
+
+def test_encode_decode_operators_in_text(test_key):
+    """Test encoding and decoding math operators inside words"""
+    encoder = BigramEncoder(test_key)
+    decoder = BigramDecoder(test_key)
+
+    plaintext = "X+Y-Z/W*2"
+    decoded = decoder.decode(encoder.encode(plaintext))
+
+    assert decoded == plaintext
+
+
+def test_sentence_ending_punctuation_not_encoded(test_key):
+    """Test that sentence-ending punctuation is not encoded as a special character"""
+    encoder = BigramEncoder(test_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    encoded = encoder.encode("HI THERE! HOW ARE YOU?")
+
+    assert km.get_symbol_for_special(test_key, '!') not in encoded
+    assert km.get_symbol_for_special(test_key, '?') not in encoded
+
+
 def test_odd_length_words(test_key):
     """Test encoding odd-length words"""
     encoder = BigramEncoder(test_key)
