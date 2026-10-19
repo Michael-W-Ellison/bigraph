@@ -17,6 +17,8 @@ Design Rules:
   closed triangles
 - Two diagonals at the same position that would form one straight line
   crossing the primary line are not used
+- A plain vertical line is not used as a symbol; it is the partial marker
+  ("|") that shows only one letter of a bigram is used
 """
 
 import math
@@ -122,7 +124,8 @@ class SymbolGenerator:
                         {'position': position, 'side': side, 'type': ext_type}
                         for (position, side), ext_type in zip(chosen_slots, types)
                     ]
-                    if not self._has_crossing_diagonals(extensions):
+                    is_partial_marker = orientation == 'vertical' and not extensions
+                    if not is_partial_marker and not self._has_crossing_diagonals(extensions):
                         configs.append({
                             'orientation': orientation,
                             'extensions': extensions
@@ -141,6 +144,27 @@ class SymbolGenerator:
             if diagonal_types == {'toward_start', 'toward_end'}:
                 return True
         return False
+
+    def create_partial_marker_svg(self) -> str:
+        """
+        Create the SVG for the partial marker ("|")
+
+        The marker is the plain vertical primary line, drawn in a narrow
+        viewBox so it takes less horizontal space than a symbol.
+
+        Returns:
+            SVG string
+        """
+        size = self.symbol_size
+        width = 2 * self.margin
+        left = (size - width) / 2
+        center = size / 2
+
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{left:g} 0 {width} {size}" '
+                f'width="{width}" height="{size}">\n'
+                f'  <line x1="{center:g}" y1="{self.margin}" x2="{center:g}" y2="{size - self.margin}" '
+                f'stroke="black" stroke-width="{self.line_width}" stroke-linecap="square"/>\n'
+                f'</svg>')
 
     def _create_svg_symbol(self, config: Dict) -> str:
         """

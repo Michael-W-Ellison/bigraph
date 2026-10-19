@@ -102,33 +102,35 @@ TEST → TE, ST (even, straightforward)
 
 **Odd-length words**:
 - Encode all complete bigrams
-- For final letter:
-  1. Search earlier in word for same letter
-  2. If found: Reuse that bigram with partial marker
-  3. If not found: Create bigram `{letter}A` with partial marker
+- Encode the final letter as a single letter (see 3.3)
 
 **Partial Markers**:
+- Drawn as a plain vertical line, which is reserved for this and is not a symbol
 - Encoded as offset from symbol index
 - Negative index (-symbol - 1): Use first letter of bigram
 - High offset (+10000): Use second letter of bigram
 
-#### 3.3 Single Letter Words
+#### 3.3 Single Letters
 
-**'A' Rotation**:
+The final letter of an odd-length word and single-letter words such as 'A'
+and 'I' are written as one letter of a bigram, with the partial marker before
+it. Each letter cycles through its own bigrams, so a repeated word keeps its
+pairs but changes its single letter:
+
 ```
-1st A → |AA (first letter only)
-2nd A → |AB (first letter only)
-3rd A → |AC (first letter only)
-...
+THE  → TH, |EA
+THE  → TH, |EB
+THE  → TH, |EC
+A    → |AA
+A    → |AB
+I    → |IA
 ```
 
-**'I' Rotation**:
-```
-1st I → |IA (first letter only)
-2nd I → |IB (first letter only)
-3rd I → |IC (first letter only)
-...
-```
+- Each letter has its own counter, shared by final letters and single-letter
+  words, and the counters reset for each message
+- After |EZ the cycle returns to |EA
+- Even-length words have no single letters, so they are always written the
+  same way (THEM → TH, EM)
 
 #### 3.4 Space Markers
 

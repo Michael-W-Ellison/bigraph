@@ -24,9 +24,6 @@ PARTIAL_MARKER = '|'
 # Multiply/divide indicator
 MULTIPLY_DIVIDE_MARKER = 'MULDIV'
 
-# Default bigram for final letters not found in word
-DEFAULT_FINAL_BIGRAM = 'SA'
-
 # Total number of symbols needed
 # 676 bigrams + 10 digits (positive) + 10 digits (negative) + 1 mul/div + 14 special chars
 # + 3 math operators + 7 space markers

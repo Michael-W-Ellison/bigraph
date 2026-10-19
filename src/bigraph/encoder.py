@@ -9,7 +9,7 @@ and number handling.
 import re
 from typing import List, Tuple, Dict, Optional
 from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
-                       DEFAULT_FINAL_BIGRAM, LETTERS, SPECIAL_CHARS,
+                       LETTERS, SPECIAL_CHARS,
                        MATH_OPERATORS)
 from .key_manager import KeyManager
 
@@ -29,8 +29,7 @@ class BigramEncoder:
 
         # Track rotation counters
         self.space_marker_index = 0
-        self.a_rotation_index = 0
-        self.i_rotation_index = 0
+        self.letter_rotation_index = {}
 
     def encode(self, plaintext: str) -> List[int]:
         """
@@ -44,8 +43,7 @@ class BigramEncoder:
         """
         # Reset rotation counters for each encoding
         self.space_marker_index = 0
-        self.a_rotation_index = 0
-        self.i_rotation_index = 0
+        self.letter_rotation_index = {}
 
         # Preprocess text
         processed = self._preprocess_text(plaintext)
@@ -191,12 +189,6 @@ class BigramEncoder:
         if not clean_word:
             return []
 
-        # Handle standalone 'A' or 'I' with rotation
-        if clean_word == 'A':
-            return self._encode_standalone_a()
-        elif clean_word == 'I':
-            return self._encode_standalone_i()
-
         # Handle numbers
         if clean_word.isdigit():
             return self._encode_number_sequence(clean_word)
@@ -222,96 +214,36 @@ class BigramEncoder:
                     result.append(symbol)
 
             # Handle last letter
-            last_letter = clean_word[-1]
-            last_symbol = self._encode_final_letter(clean_word, last_letter)
-            result.extend(last_symbol)
+            result.extend(self._encode_single_letter(clean_word[-1]))
 
         return result
 
-    def _encode_final_letter(self, word: str, last_letter: str) -> List[int]:
+    def _encode_single_letter(self, letter: str) -> List[int]:
         """
-        Encode the final letter of an odd-length word
+        Encode a single letter with rotation
 
-        Rules:
-        1. If the letter appears earlier in the word, reuse that bigram with partial marker
-        2. Otherwise, use default bigram (SA) with partial marker
+        Used for the final letter of an odd-length word and for single-letter
+        words such as 'A' and 'I'. Each letter cycles through its own bigrams:
+        the first single 'E' uses EA, the next EB, then EC, and so on.
+        Only the first letter of the bigram is used, so the partial marker
+        comes before the symbol.
 
         Args:
-            word: Full word
-            last_letter: The final letter to encode
+            letter: Letter to encode
 
         Returns:
-            List of symbol indices (partial marker + bigram or bigram + partial marker)
+            List containing the partial-before symbol index
         """
-        # Look for the letter earlier in the word
-        for i in range(len(word) - 1):
-            if word[i] == last_letter:
-                # Found it! Determine which bigram it's part of
-                # Find the bigram containing this occurrence
-                bigram_index = i // 2
-                start_idx = bigram_index * 2
+        if not letter.isalpha():
+            return []
 
-                if start_idx + 1 < len(word):
-                    bigram = word[start_idx:start_idx + 2]
+        rotation = self.letter_rotation_index.get(letter, 0)
+        self.letter_rotation_index[letter] = rotation + 1
 
-                    # Determine if we use first or second letter
-                    if i % 2 == 0:
-                        # Last letter is the first letter of the bigram
-                        # Use | before the symbol
-                        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-                        if symbol is not None:
-                            # Return partial marker indicator (we'll use a special encoding)
-                            # For now, we'll use negative symbol index to indicate partial-before
-                            return [-symbol - 1]  # Negative indicates partial marker before
-                    else:
-                        # Last letter is the second letter of the bigram
-                        # Use | after the symbol
-                        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-                        if symbol is not None:
-                            # Positive but add offset to indicate partial-after
-                            # We'll use a high offset that won't conflict
-                            return [symbol + 10000]  # +10000 indicates partial marker after
-
-        # Letter not found - create a bigram with this letter
-        # Use the letter + A as the bigram, and mark to use only the first letter
-        default_bigram = f"{last_letter}A"
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, default_bigram)
-
-        if symbol is not None:
-            # Use first letter of the bigram, so partial marker before
-            return [-symbol - 1]
-
-        return []
-
-    def _encode_standalone_a(self) -> List[int]:
-        """
-        Encode standalone 'A' with rotation
-
-        Uses AA, AB, AC, etc. in sequence
-        """
-        bigram_index = self.a_rotation_index % 26
-        bigram = f"A{LETTERS[bigram_index]}"
-        self.a_rotation_index += 1
-
+        bigram = f"{letter}{LETTERS[rotation % len(LETTERS)]}"
         symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
         if symbol is not None:
-            # Return with partial marker (only first letter used)
-            return [-symbol - 1]
-        return []
-
-    def _encode_standalone_i(self) -> List[int]:
-        """
-        Encode standalone 'I' with rotation
-
-        Uses IA, IB, IC, etc. in sequence
-        """
-        bigram_index = self.i_rotation_index % 26
-        bigram = f"I{LETTERS[bigram_index]}"
-        self.i_rotation_index += 1
-
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-        if symbol is not None:
-            # Return with partial marker (only first letter used)
+            # Negative indicates partial marker before (only first letter used)
             return [-symbol - 1]
         return []
 

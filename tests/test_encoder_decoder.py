@@ -204,6 +204,50 @@ def test_roundtrip_consistency(test_key):
             assert word in decoded or word[:2] in decoded
 
 
+
+def test_repeated_word_cycles_final_letter(test_key):
+    """Test that a repeated odd-length word keeps its pairs but cycles its final letter"""
+    encoder = BigramEncoder(test_key)
+    decoder = BigramDecoder(test_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    encoded = encoder.encode("THE THE THE")
+    th = km.get_symbol_for_bigram(test_key, 'TH')
+    words = [encoded[0:2], encoded[3:5], encoded[6:8]]
+
+    for word, bigram in zip(words, ['EA', 'EB', 'EC']):
+        assert word[0] == th
+        assert word[1] == -km.get_symbol_for_bigram(test_key, bigram) - 1
+
+    assert decoder.decode(encoded) == "THE THE THE"
+
+
+def test_single_letter_rotation_is_per_letter(test_key):
+    """Test that each letter keeps its own rotation, shared by final letters and single-letter words"""
+    encoder = BigramEncoder(test_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    encoded = encoder.encode("A I A IDEA")
+    expected = ['AA', 'IA', 'AB']
+    singles = [encoded[0], encoded[2], encoded[4]]
+
+    for value, bigram in zip(singles, expected):
+        assert value == -km.get_symbol_for_bigram(test_key, bigram) - 1
+
+    # IDEA is even length, so it is written as ID, EA with no single letters
+    assert encoded[6:] == [km.get_symbol_for_bigram(test_key, 'ID'),
+                           km.get_symbol_for_bigram(test_key, 'EA')]
+
+
+def test_final_letter_does_not_reuse_earlier_bigram(test_key):
+    """Test that a final letter found earlier in the word is not written with that bigram"""
+    encoder = BigramEncoder(test_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    encoded = encoder.encode("SMALL")
+
+    assert encoded[-1] == -km.get_symbol_for_bigram(test_key, 'LA') - 1
+
 if __name__ == '__main__':
     # Clean up test keys directory
     import shutil

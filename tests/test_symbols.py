@@ -107,5 +107,18 @@ def test_diagonal_tips_meet():
     assert tip1 == pytest.approx(tip2)
 
 
+
+def test_plain_vertical_line_reserved_for_partial_marker():
+    """Test that the plain vertical line is not a symbol and is used as the partial marker"""
+    gen = SymbolGenerator(seed=42)
+    configs = gen._generate_symbol_configurations(TOTAL_SYMBOLS)
+
+    assert not any(c['orientation'] == 'vertical' and not c['extensions'] for c in configs)
+
+    marker = gen.create_partial_marker_svg()
+    assert marker.startswith('<svg')
+    assert marker.count('<line') == 1
+    assert 'x1="50" y1="15" x2="50" y2="85"' in marker
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
