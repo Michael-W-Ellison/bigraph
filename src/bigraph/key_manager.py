@@ -136,6 +136,12 @@ class KeyManager:
                 int(k): v for k, v in key['symbol_to_meaning'].items()
             }
 
+        # Redraw the symbols with the current symbol generator, so a key saved
+        # by an older version does not use that version's symbols
+        if 'seed' in key and 'symbol_to_meaning' in key:
+            symbol_gen = SymbolGenerator(seed=key['seed'])
+            key['symbols_svg'] = symbol_gen.generate_all_symbols()[:len(key['symbol_to_meaning'])]
+
         return key
 
     def list_keys(self) -> List[Dict]:

@@ -127,5 +127,18 @@ def test_get_symbol_for_number():
     assert symbol_5 != symbol_neg_5
 
 
+
+def test_load_key_redraws_symbols(temp_keys_dir):
+    """Test that loading a key replaces stored symbols with current ones"""
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test', seed=42)
+    expected = key['symbols_svg']
+
+    key['symbols_svg'] = ['<svg>old</svg>'] * len(expected)
+    filepath = km.save_key(key)
+
+    loaded = km.load_key(filepath)
+    assert loaded['symbols_svg'] == expected
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

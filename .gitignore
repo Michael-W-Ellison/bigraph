@@ -1,0 +1,13 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Test output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated key files
+keys/
+test_keys/
+*.key

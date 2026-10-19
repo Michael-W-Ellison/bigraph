@@ -17,14 +17,24 @@ Symbols are generated as SVG graphics with the following structure:
   - Start position (top for vertical, left for horizontal)
   - Middle position
   - End position (bottom for vertical, right for horizontal)
-- **Extension Angles**: 90° (perpendicular) or ±45° (diagonal)
-- **Extension Sides**: Left, right, or both
+- **Extension Angles**: 90° (perpendicular) or 45° (diagonal), with a
+  diagonal slanting toward either end of the primary line
+- **Extension Sides**: Left, right, or both (up, down, or both for horizontal),
+  with at most one extension per side at each position
+- **Extension Length**: About one third of the primary line. A diagonal at an
+  end of the primary line that points away from the line is half length.
+- **Touching**: Diagonals from neighbouring positions on the same side meet at
+  their tips and form a closed triangle. Two diagonals at the same position
+  that would form one straight line across the primary line are not used.
 
 **Generation Process**:
-1. Systematic generation of configurations
-2. Random variations if more symbols needed
+1. All configurations are enumerated, grouped by number of extensions
+2. Groups with fewer extensions are used first; when only part of a group is
+   needed, that part is chosen at random using the key's seed
 3. Each symbol is uniquely identified by its configuration
 4. Total symbols needed: 721 (676 bigrams + numbers + special chars + math operators)
+5. Loading a saved key redraws its symbols from its seed with the current
+   generator, so keys saved by older versions do not use older symbols
 
 ### 2. Key Management
 
