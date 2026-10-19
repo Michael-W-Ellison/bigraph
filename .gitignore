@@ -11,3 +11,6 @@ htmlcov/
 keys/
 test_keys/
 *.key
+
+# Cryptanalysis corpus cache
+cryptanalysis/data/
