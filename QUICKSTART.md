@@ -56,7 +56,7 @@ from bigraph.decoder import BigramDecoder
 
 # Generate key
 km = KeyManager()
-key = km.generate_key("Alice", seed=42)
+key = km.generate_key("Alice")
 
 # Encode
 encoder = BigramEncoder(key)
@@ -94,7 +94,7 @@ Words with odd numbers of letters use special partial markers.
 - **Unique keys**: Generate a different key for each person
 - **Share keys securely**: Send keys through a different channel than messages
 - **Backup keys**: Export keys to backup files
-- **Use seeds**: Reproducible keys with the same seed
+- **Don't use seeds for real keys**: A seed makes a key reproducible by anyone who knows or guesses it; use seeds only for testing
 
 ## Examples
 

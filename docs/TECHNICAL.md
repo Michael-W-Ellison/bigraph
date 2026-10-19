@@ -30,10 +30,10 @@ Symbols are generated as SVG graphics with the following structure:
 **Generation Process**:
 1. All configurations are enumerated, grouped by number of extensions
 2. Groups with fewer extensions are used first; when only part of a group is
-   needed, that part is chosen at random using the key's seed
+   needed, that part is chosen at random using the key's symbol seed
 3. Each symbol is uniquely identified by its configuration
 4. Total symbols needed: 721 (676 bigrams + numbers + special chars + math operators)
-5. Loading a saved key redraws its symbols from its seed with the current
+5. Loading a saved key redraws its symbols from its symbol seed with the current
    generator, so keys saved by older versions do not use older symbols
 
 ### 2. Key Management
@@ -45,7 +45,8 @@ Symbols are generated as SVG graphics with the following structure:
 {
   "recipient": "Alice",
   "created": "2024-01-01T12:00:00",
-  "seed": 42,
+  "seed": null,
+  "symbol_seed": 283749027349872340987234098723409872341,
   "symbol_to_meaning": {
     "0": "AA",
     "1": "AB",
@@ -76,9 +77,14 @@ Symbols are generated as SVG graphics with the following structure:
 - **MULDIV Marker**: Separates operands in math expressions
 
 **Random Mapping**:
-- Uses Python's `random.shuffle()` with optional seed
-- Seed enables reproducible key generation
-- Each recipient should have unique seed/key
+- Without a seed, the mapping is shuffled with `secrets.SystemRandom`
+  (the operating system's secure random source), and `symbol_seed` is a
+  128-bit value from the same source that chooses the symbol drawings
+- With a seed, the key is reproducible with `random.Random(seed)`; anyone who
+  knows or guesses the seed can recreate the key, so seeds are for testing
+  and examples only
+- Keys saved before `symbol_seed` was added were created from a 32-bit seed
+  and should be replaced
 
 ### 3. Encoding Engine
 

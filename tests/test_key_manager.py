@@ -140,5 +140,56 @@ def test_load_key_redraws_symbols(temp_keys_dir):
     loaded = km.load_key(filepath)
     assert loaded['symbols_svg'] == expected
 
+
+def test_unseeded_keys_use_secure_randomness(temp_keys_dir):
+    """Test that keys without a seed are not reproducible and use a 128-bit symbol seed"""
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key1 = km.generate_key('User1')
+    key2 = km.generate_key('User1')
+
+    assert key1['seed'] is None
+    assert key1['symbol_to_meaning'] != key2['symbol_to_meaning']
+    assert key1['symbol_seed'] != key2['symbol_seed']
+    assert 0 <= key1['symbol_seed'] < 2**128
+
+
+def test_generate_key_does_not_change_global_random_state(temp_keys_dir):
+    """Test that key generation does not reseed the global random module"""
+    import random
+    km = KeyManager(keys_directory=temp_keys_dir)
+
+    random.seed(7)
+    expected = random.random()
+    random.seed(7)
+    km.generate_key('User1', seed=42)
+    km.generate_key('User2')
+
+    assert random.random() == expected
+
+
+def test_unseeded_key_redraws_same_symbols_on_load(temp_keys_dir):
+    """Test that a secure key's symbols are redrawn identically from its symbol seed"""
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test')
+    filepath = km.save_key(key)
+
+    loaded = km.load_key(filepath)
+
+    assert loaded['symbols_svg'] == key['symbols_svg']
+
+
+def test_load_key_without_symbol_seed(temp_keys_dir):
+    """Test that keys saved before symbol_seed was added redraw from their seed"""
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test', seed=42)
+    expected = key['symbols_svg']
+    del key['symbol_seed']
+    key['symbols_svg'] = ['<svg>old</svg>'] * len(expected)
+    filepath = km.save_key(key)
+
+    loaded = km.load_key(filepath)
+
+    assert loaded['symbols_svg'] == expected
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

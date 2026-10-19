@@ -152,7 +152,7 @@ class BigramCryptoGUI:
         self.recipient_name = tk.StringVar()
         ttk.Entry(gen_frame, textvariable=self.recipient_name, width=30).grid(row=0, column=1, padx=5, pady=5)
 
-        ttk.Label(gen_frame, text="Seed (optional):").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        ttk.Label(gen_frame, text="Seed (testing only):").grid(row=1, column=0, sticky='w', padx=5, pady=5)
         self.key_seed = tk.StringVar()
         ttk.Entry(gen_frame, textvariable=self.key_seed, width=30).grid(row=1, column=1, padx=5, pady=5)
 

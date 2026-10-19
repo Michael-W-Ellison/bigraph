@@ -7,6 +7,7 @@ Each key maps symbols to bigrams/characters randomly.
 
 import json
 import random
+import secrets
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -34,17 +35,25 @@ class KeyManager:
 
         The key maps symbol indices to their meanings (bigrams, numbers, etc.)
 
+        Without a seed, the mapping is shuffled with the operating system's
+        secure random source, and the symbol drawings are chosen with a
+        128-bit seed from the same source.
+
         Args:
             recipient_name: Name/identifier for the recipient
-            seed: Optional random seed for reproducible keys
+            seed: Optional random seed for reproducible keys. Seeded keys can
+                be recreated by anyone who knows or guesses the seed, so use
+                them only for testing and examples.
 
         Returns:
             Dictionary containing the key mapping and metadata
         """
         if seed is None:
-            seed = random.randint(0, 2**32 - 1)
-
-        random.seed(seed)
+            rng = secrets.SystemRandom()
+            symbol_seed = secrets.randbits(128)
+        else:
+            rng = random.Random(seed)
+            symbol_seed = seed
 
         # Create list of all items that need symbols
         items = []
@@ -72,7 +81,7 @@ class KeyManager:
 
         # Shuffle to create random mapping
         shuffled_items = items.copy()
-        random.shuffle(shuffled_items)
+        rng.shuffle(shuffled_items)
 
         # Create mapping: symbol_index -> meaning
         symbol_to_meaning = {i: shuffled_items[i] for i in range(len(shuffled_items))}
@@ -81,7 +90,7 @@ class KeyManager:
         meaning_to_symbol = {v: k for k, v in symbol_to_meaning.items()}
 
         # Generate the actual SVG symbols
-        symbol_gen = SymbolGenerator(seed=seed)
+        symbol_gen = SymbolGenerator(seed=symbol_seed)
         symbols_svg = symbol_gen.generate_all_symbols()
 
         # Create key object
@@ -89,6 +98,7 @@ class KeyManager:
             'recipient': recipient_name,
             'created': datetime.now().isoformat(),
             'seed': seed,
+            'symbol_seed': symbol_seed,
             'symbol_to_meaning': symbol_to_meaning,
             'meaning_to_symbol': meaning_to_symbol,
             'symbols_svg': symbols_svg[:len(shuffled_items)],  # Only include needed symbols
@@ -137,9 +147,11 @@ class KeyManager:
             }
 
         # Redraw the symbols with the current symbol generator, so a key saved
-        # by an older version does not use that version's symbols
-        if 'seed' in key and 'symbol_to_meaning' in key:
-            symbol_gen = SymbolGenerator(seed=key['seed'])
+        # by an older version does not use that version's symbols. Keys saved
+        # before symbol_seed was added use their seed.
+        symbol_seed = key.get('symbol_seed', key.get('seed'))
+        if symbol_seed is not None and 'symbol_to_meaning' in key:
+            symbol_gen = SymbolGenerator(seed=symbol_seed)
             key['symbols_svg'] = symbol_gen.generate_all_symbols()[:len(key['symbol_to_meaning'])]
 
         return key
