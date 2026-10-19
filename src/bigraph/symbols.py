@@ -59,14 +59,17 @@ class SymbolGenerator:
         self.diagonal_offset = spacing / 2
         self.extension_length = self.diagonal_offset * math.sqrt(2)
 
-    def generate_all_symbols(self) -> List[str]:
+    def generate_all_symbols(self, count: int = TOTAL_SYMBOLS) -> List[str]:
         """
         Generate all unique symbols needed for the system
+
+        Args:
+            count: Number of symbols to generate
 
         Returns:
             List of SVG strings, one for each symbol
         """
-        symbol_configs = self._generate_symbol_configurations(TOTAL_SYMBOLS)
+        symbol_configs = self._generate_symbol_configurations(count)
         return [self._create_svg_symbol(config) for config in symbol_configs]
 
     def _generate_symbol_configurations(self, count: int) -> List[Dict]:

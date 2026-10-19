@@ -106,6 +106,10 @@ class BigramDecoder:
                         char = meaning.split('_', 1)[-1]
                         result.append(char)
 
+                    elif meaning.startswith('WORD_'):
+                        # Common word
+                        result.append(meaning.split('_')[1])
+
                     elif meaning in self.key['meaning_to_symbol']:
                         # Regular bigram
                         result.append(meaning)
@@ -177,6 +181,8 @@ class BigramDecoder:
                         decoded_text = " * "
                 elif meaning.startswith('SPECIAL_'):
                     decoded_text = meaning.split('_', 1)[-1]
+                elif meaning.startswith('WORD_'):
+                    decoded_text = meaning.split('_')[1]
                 else:
                     decoded_text = meaning
 

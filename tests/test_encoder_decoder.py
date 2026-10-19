@@ -6,10 +6,12 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+import random
 import pytest
 from bigraph.key_manager import KeyManager
 from bigraph.encoder import BigramEncoder
 from bigraph.decoder import BigramDecoder
+from bigraph.constants import SPACE_MARKERS
 
 
 @pytest.fixture
@@ -211,15 +213,15 @@ def test_repeated_word_cycles_final_letter(test_key):
     decoder = BigramDecoder(test_key)
     km = KeyManager(keys_directory='test_keys')
 
-    encoded = encoder.encode("THE THE THE")
-    th = km.get_symbol_for_bigram(test_key, 'TH')
+    encoded = encoder.encode("CAT CAT CAT")
+    ca = km.get_symbol_for_bigram(test_key, 'CA')
     words = [encoded[0:2], encoded[3:5], encoded[6:8]]
 
-    for word, bigram in zip(words, ['EA', 'EB', 'EC']):
-        assert word[0] == th
+    for word, bigram in zip(words, ['TA', 'TB', 'TC']):
+        assert word[0] == ca
         assert word[1] == -km.get_symbol_for_bigram(test_key, bigram) - 1
 
-    assert decoder.decode(encoded) == "THE THE THE"
+    assert decoder.decode(encoded) == "CAT CAT CAT"
 
 
 def test_single_letter_rotation_is_per_letter(test_key):
@@ -227,16 +229,16 @@ def test_single_letter_rotation_is_per_letter(test_key):
     encoder = BigramEncoder(test_key)
     km = KeyManager(keys_directory='test_keys')
 
-    encoded = encoder.encode("A I A IDEA")
-    expected = ['AA', 'IA', 'AB']
+    encoded = encoder.encode("X Z X ZAX")
+    expected = ['XA', 'ZA', 'XB']
     singles = [encoded[0], encoded[2], encoded[4]]
 
     for value, bigram in zip(singles, expected):
         assert value == -km.get_symbol_for_bigram(test_key, bigram) - 1
 
-    # IDEA is even length, so it is written as ID, EA with no single letters
-    assert encoded[6:] == [km.get_symbol_for_bigram(test_key, 'ID'),
-                           km.get_symbol_for_bigram(test_key, 'EA')]
+    # ZAX is written as ZA, then its final X continues the X rotation
+    assert encoded[6:] == [km.get_symbol_for_bigram(test_key, 'ZA'),
+                           -km.get_symbol_for_bigram(test_key, 'XC') - 1]
 
 
 def test_final_letter_does_not_reuse_earlier_bigram(test_key):
@@ -247,6 +249,58 @@ def test_final_letter_does_not_reuse_earlier_bigram(test_key):
     encoded = encoder.encode("SMALL")
 
     assert encoded[-1] == -km.get_symbol_for_bigram(test_key, 'LA') - 1
+
+
+def test_common_word_uses_one_of_its_symbols(test_key):
+    """Test that a common word is written as one of its own symbols"""
+    encoder = BigramEncoder(test_key, rng=random.Random(1))
+    decoder = BigramDecoder(test_key)
+
+    the_symbols = {s for m, s in test_key['meaning_to_symbol'].items() if m.startswith('WORD_THE_')}
+    encoded = encoder.encode(" ".join(["THE"] * 50))
+    used = set(encoded[::2])
+
+    assert used <= the_symbols
+    assert len(used) > 1
+    assert decoder.decode(encoded) == " ".join(["THE"] * 50)
+
+
+def test_space_markers_are_chosen_at_random(test_key):
+    """Test that space markers do not follow a fixed rotation"""
+    km = KeyManager(keys_directory='test_keys')
+    markers = [km.get_symbol_for_space_marker(test_key, m) for m in SPACE_MARKERS]
+    plaintext = " ".join(["CAT"] * 100)
+
+    encoded1 = BigramEncoder(test_key, rng=random.Random(1)).encode(plaintext)
+    encoded2 = BigramEncoder(test_key, rng=random.Random(2)).encode(plaintext)
+    used1 = [v for v in encoded1 if v in markers]
+    used2 = [v for v in encoded2 if v in markers]
+
+    assert len(used1) == len(used2) == 99
+    assert used1 != used2
+    cyclic = [markers[i % len(markers)] for i in range(99)]
+    assert used1 != cyclic
+
+
+def test_key_without_word_symbols_spells_common_words(no_word_symbols_key):
+    """Test that keys without word symbols spell common words with bigrams"""
+    encoder = BigramEncoder(no_word_symbols_key)
+    decoder = BigramDecoder(no_word_symbols_key)
+    km = KeyManager(keys_directory='test_keys')
+
+    encoded = encoder.encode("THE")
+
+    assert not any(m.startswith('WORD_') for m in no_word_symbols_key['meaning_to_symbol'])
+    assert encoded == [km.get_symbol_for_bigram(no_word_symbols_key, 'TH'),
+                       -km.get_symbol_for_bigram(no_word_symbols_key, 'EA') - 1]
+    assert decoder.decode(encoded) == "THE"
+
+
+@pytest.fixture
+def no_word_symbols_key():
+    """Create a test key without common word symbols"""
+    km = KeyManager(keys_directory='test_keys')
+    return km.generate_key('TestRecipient', seed=42, word_symbol_budget=0)
 
 if __name__ == '__main__':
     # Clean up test keys directory

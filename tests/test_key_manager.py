@@ -191,5 +191,30 @@ def test_load_key_without_symbol_seed(temp_keys_dir):
 
     assert loaded['symbols_svg'] == expected
 
+
+def test_word_symbols_in_key(temp_keys_dir):
+    """Test that keys include the common word symbols"""
+    from bigraph.constants import word_symbol_counts, WORD_SYMBOL_BUDGET, TOTAL_SYMBOLS
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test', seed=42)
+
+    word_meanings = [m for m in key['meaning_to_symbol'] if m.startswith('WORD_')]
+    counts = word_symbol_counts()
+
+    assert len(word_meanings) == WORD_SYMBOL_BUDGET == sum(counts.values())
+    assert len(counts) == 100
+    assert len(key['symbols_svg']) == len(key['symbol_to_meaning']) == TOTAL_SYMBOLS
+    assert len(set(key['symbols_svg'])) == TOTAL_SYMBOLS
+    # More frequent words get more symbols
+    assert counts['THE'] > counts['AND'] > counts['WITH'] >= 1
+
+
+def test_larger_word_symbol_budget(temp_keys_dir):
+    """Test that a larger budget adds more symbols, using more complex shapes"""
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test', seed=42, word_symbol_budget=2000)
+
+    assert len(key['symbol_to_meaning']) == len(set(key['symbols_svg'])) == 721 + 2000
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

@@ -12,7 +12,8 @@ import os
 from typing import Dict, List, Optional
 from datetime import datetime
 from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
-                       DIGITS, MULTIPLY_DIVIDE_MARKER, TOTAL_SYMBOLS)
+                       DIGITS, MULTIPLY_DIVIDE_MARKER, WORD_SYMBOL_BUDGET,
+                       word_symbol_counts)
 from .symbols import SymbolGenerator
 
 
@@ -29,7 +30,8 @@ class KeyManager:
         self.keys_directory = keys_directory
         os.makedirs(keys_directory, exist_ok=True)
 
-    def generate_key(self, recipient_name: str, seed: int = None) -> Dict:
+    def generate_key(self, recipient_name: str, seed: int = None,
+                     word_symbol_budget: int = WORD_SYMBOL_BUDGET) -> Dict:
         """
         Generate a new random key for a recipient
 
@@ -44,6 +46,8 @@ class KeyManager:
             seed: Optional random seed for reproducible keys. Seeded keys can
                 be recreated by anyone who knows or guesses the seed, so use
                 them only for testing and examples.
+            word_symbol_budget: Number of symbols shared among the common
+                words (0 for none)
 
         Returns:
             Dictionary containing the key mapping and metadata
@@ -79,6 +83,10 @@ class KeyManager:
         # Add space markers
         items.extend([f"SPACE_{marker}" for marker in SPACE_MARKERS])
 
+        # Add several symbols for each common word
+        for word, count in word_symbol_counts(word_symbol_budget).items():
+            items.extend([f"WORD_{word}_{i}" for i in range(count)])
+
         # Shuffle to create random mapping
         shuffled_items = items.copy()
         rng.shuffle(shuffled_items)
@@ -91,7 +99,7 @@ class KeyManager:
 
         # Generate the actual SVG symbols
         symbol_gen = SymbolGenerator(seed=symbol_seed)
-        symbols_svg = symbol_gen.generate_all_symbols()
+        symbols_svg = symbol_gen.generate_all_symbols(len(shuffled_items))
 
         # Create key object
         key = {
@@ -101,7 +109,7 @@ class KeyManager:
             'symbol_seed': symbol_seed,
             'symbol_to_meaning': symbol_to_meaning,
             'meaning_to_symbol': meaning_to_symbol,
-            'symbols_svg': symbols_svg[:len(shuffled_items)],  # Only include needed symbols
+            'symbols_svg': symbols_svg,
             'version': '1.0'
         }
 
@@ -152,7 +160,7 @@ class KeyManager:
         symbol_seed = key.get('symbol_seed', key.get('seed'))
         if symbol_seed is not None and 'symbol_to_meaning' in key:
             symbol_gen = SymbolGenerator(seed=symbol_seed)
-            key['symbols_svg'] = symbol_gen.generate_all_symbols()[:len(key['symbol_to_meaning'])]
+            key['symbols_svg'] = symbol_gen.generate_all_symbols(len(key['symbol_to_meaning']))
 
         return key
 

@@ -7,6 +7,8 @@ and number handling.
 """
 
 import re
+import secrets
+from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
                        LETTERS, SPECIAL_CHARS,
@@ -17,18 +19,29 @@ from .key_manager import KeyManager
 class BigramEncoder:
     """Encodes plaintext messages using the bigram system"""
 
-    def __init__(self, key: Dict):
+    def __init__(self, key: Dict, rng=None):
         """
         Initialize the encoder with a key
 
         Args:
             key: Encryption key dictionary
+            rng: Random source for choosing among symbols with the same
+                meaning (default: the operating system's secure source)
         """
         self.key = key
         self.key_manager = KeyManager()
+        self.rng = rng if rng is not None else secrets.SystemRandom()
+
+        # Symbols for each common word (keys made without word symbols have none)
+        self.word_symbols = defaultdict(list)
+        for meaning, symbol in key['meaning_to_symbol'].items():
+            if meaning.startswith('WORD_'):
+                word = meaning.split('_')[1]
+                self.word_symbols[word].append(symbol)
+        for symbols in self.word_symbols.values():
+            symbols.sort()
 
         # Track rotation counters
-        self.space_marker_index = 0
         self.letter_rotation_index = {}
 
     def encode(self, plaintext: str) -> List[int]:
@@ -42,7 +55,6 @@ class BigramEncoder:
             List of symbol indices representing the encoded message
         """
         # Reset rotation counters for each encoding
-        self.space_marker_index = 0
         self.letter_rotation_index = {}
 
         # Preprocess text
@@ -188,6 +200,10 @@ class BigramEncoder:
 
         if not clean_word:
             return []
+
+        # Common words have their own symbols; pick one at random
+        if clean_word in self.word_symbols:
+            return [self.rng.choice(self.word_symbols[clean_word])]
 
         # Handle numbers
         if clean_word.isdigit():
@@ -338,13 +354,15 @@ class BigramEncoder:
 
     def _get_space_marker(self) -> int:
         """
-        Get the next space marker symbol (rotating through the 7 rare bigrams)
+        Get a space marker symbol, chosen at random from the 7 rare bigrams
+
+        A fixed rotation would let an attacker find the markers, because
+        markers used in a strict cycle always alternate with each other.
 
         Returns:
             Symbol index for space marker
         """
-        marker = SPACE_MARKERS[self.space_marker_index % len(SPACE_MARKERS)]
-        self.space_marker_index += 1
+        marker = self.rng.choice(SPACE_MARKERS)
 
         symbol = self.key_manager.get_symbol_for_space_marker(self.key, marker)
         return symbol if symbol is not None else 0
