@@ -241,3 +241,59 @@ sweeps:
 These results show where the attacks built so far fail, not that the cipher
 is secure. It is still a substitution cipher, and it has not been tested
 against known-plaintext attacks or against methods beyond those described.
+
+---
+
+# Known-Plaintext Attack
+
+`known_plaintext.py` gives the attacker the first K words of a message (as a
+greeting, name or standard opening would), fixes every symbol in them to its
+meaning, runs the grouping attack (20 Gibbs sweeps, 1,000,000 annealing
+steps), and scores only the rest of the message. Default settings: 2,000
+word symbols and 1,500 extra bigram symbols. Raw results:
+`results_known_plaintext.json`.
+
+## Results
+
+"Symbols known" is the share of symbol uses in the unknown part whose meaning
+the known words revealed. Accuracy is for the unknown part only, averaged
+over 2 trials (each trial in parentheses).
+
+| Message | Known words | Symbols known | Letters correct | Words correct |
+|---:|---:|---:|---|---:|
+| 1,600 | 0 | 0% | 13% (13%, 14%) | 6% |
+| 1,600 | 25 | 2% | 12% (11%, 14%) | 6% |
+| 1,600 | 100 | 8% | 19% (20%, 17%) | 10% |
+| 1,600 | 400 | 23% | 47% (51%, 43%) | 19% |
+| 6,400 | 0 | 0% | 7% (7%, 7%) | 3% |
+| 6,400 | 25 | 2% | 7% (8%, 5%) | 4% |
+| 6,400 | 100 | 7% | 15% (21%, 8%) | 5% |
+| 6,400 | 400 | 26% | 79% (80%, 79%) | 58% |
+| 6,400 | 1,600 | 63% | 86% (86%, 86%) | 74% |
+
+## Findings
+
+- **A few known words do not help much.** Knowing 25 words gave no
+  measurable gain, and 100 words gave a small one (15–19% of letters). Because
+  common words and bigrams have many symbols, a known word reveals only the
+  symbols it happened to use: 100 known words revealed 7–8% of the symbol uses
+  in the rest of the message.
+- **About 400 known words in a long message is enough to read most of it.**
+  With 400 known words, about a quarter of the remaining symbol uses were
+  known, and the attack read 79% of the letters of a 6,400-word message. That
+  is the same level as the warm-start test (75–80%), where the attack started
+  with half the symbols right.
+- **Message length matters.** The same 400 known words gave 47% in a
+  1,600-word message, because there was less text to check guesses against.
+- **The ceiling stays near 80–86%.** Even with 1,600 known words (63% of
+  symbol uses known), the attack read 86% of letters, limited by its model's
+  confusion between common words.
+
+## What this means for use
+
+Known text adds up across all messages sent with the same key. A key used for
+messages whose openings, signatures or recurring phrases an attacker can guess
+gives that attacker known words; once a few hundred have accumulated, together
+with a few thousand words of text, this attack can read most of the remaining
+text. Changing keys often, and avoiding fixed openings and closings, limits
+both.
