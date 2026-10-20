@@ -145,10 +145,13 @@ class GroupingSolver(base.Solver):
     # Share of one-symbol words that are spelled bigrams rather than common words
     SPELLED_SHARE = 0.02
 
-    def __init__(self, items, model, train_counts, budget, bigram_budget, rng, links):
+    def __init__(self, items, model, train_counts, budget, bigram_budget, rng, links, known=None):
         super().__init__(items, model, train_counts, budget, bigram_budget, rng)
         self.links = {s: linked for s, linked in links.items() if s in self.symbol_counts}
         self.linked_symbols = sorted(self.links)
+        # Symbols whose meaning the attacker already knows; the search never changes them
+        self.known = dict(known or {})
+        self.frozen = set(self.known)
 
         # Candidate values and their prior log probability
         bigram_total = sum(self.capacity[b] for b in BIGRAMS)
@@ -244,6 +247,8 @@ class GroupingSolver(base.Solver):
             temperature = t_start * (t_end / t_start) ** (sweep / max(1, sweeps - 1))
             self.rng.shuffle(order)
             for sym in order:
+                if sym in self.frozen:
+                    continue
                 options = self.value_candidates(sym)
                 scores = self.conditional_scores(sym, options)
                 top = max(scores)
@@ -266,9 +271,17 @@ class GroupingSolver(base.Solver):
         for sym, v in values.items():
             self.add(sym, v)
 
+    def complete_move(self, targets):
+        move = super().complete_move(targets)
+        if move and self.frozen and any(s in self.frozen for s in move):
+            return None
+        return move
+
     def run(self, iterations, sweeps=0):
         # Gibbs sweeps, then the same search as Solver.run with link moves mixed in
         self.initial_assignment()
+        if self.known:
+            self.set_values({**self.value, **self.known})
         if sweeps:
             self.gibbs(sweeps)
             self.t_start = 3.0
