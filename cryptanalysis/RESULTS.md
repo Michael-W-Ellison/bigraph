@@ -174,3 +174,70 @@ that. A different method, for example one that first groups symbols by the
 contexts they appear in, might do better. So these numbers show the extra
 bigram symbols defeat this attack up to at least 6,400 words, not that the
 cipher is secure.
+
+---
+
+# Stronger Attack: Symbol Grouping and Gibbs Sampling
+
+`attack_grouping.py` targets the extra word and bigram symbols:
+
+- **Grouping.** Spelled cipher words of the same shape that differ in one
+  position are linked, since the differing symbols often mean the same bigram.
+  At 6,400 words, 52% of links between full bigram symbols were correct, and
+  86% of links between single-letter symbols (by letter); at 25,600 words, 33%
+  and 81%. So links are used only to propose moves.
+- **Gibbs sampling.** Each symbol in turn is given a value chosen in proportion
+  to how well each candidate fits with the other symbols fixed, with priors
+  from the public symbol counts. Then annealing with link moves.
+- **Smoother scoring.** Word frequency mixed with a letter 5-gram model, so
+  partly correct words score better.
+
+Raw results: `results_grouping.json` (20 Gibbs sweeps, 1,000,000 annealing
+steps, 2 keys per length).
+
+## Cold start (the attack as an attacker would run it)
+
+Default settings: 2,000 word symbols and 1,500 extra bigram symbols.
+
+| Words | Letters correct (each trial) | Real key score vs. found |
+|---:|---|---|
+| 1,600 | 12%, 17% (test runs) | -11,784 vs. -13,259 |
+| 6,400 | 11% (test run) | -46,678 vs. -73,491 |
+| 12,800 | 8%, 7% | -92,492 vs. -153,003 |
+| 25,600 | 8%, 11% | -179,285 vs. -282,150 |
+
+More text did not help: at 25,600 words the attack still recovered about 10%
+of letters, and the real key scored far higher than its result.
+
+## Warm start (how close an attacker needs to get)
+
+`warm_start.py` starts the Gibbs sampler from the real key with part of it
+replaced by the attack's own starting guesses, on a 6,400-word passage, for 6
+sweeps:
+
+| Start | Letters | Words | Score |
+|---|---:|---:|---:|
+| Real key | 80% | 59% | -43,943 (real key: -47,499) |
+| Real key, 50% of symbols scrambled | 75% | 47% | -49,148 |
+| Attack's own start (cold) | 11% | 3% | -73,491 |
+
+## Findings
+
+- **This attack does not break the current defaults at any length tested, up
+  to 25,600 words** (roughly 50 pages) with one key.
+- **The barrier is getting started.** From a cold start the search stays near
+  10%. An attacker who already knew about half of the symbols' meanings
+  reached 75% of letters at 6,400 words.
+- **The attack's model has a ceiling of about 80% of letters at 6,400 words.**
+  Even starting from the real key, it moved to readings it scored higher than
+  the truth, mostly common words swapped for others. So a perfect search with
+  this model would read about 80% of the text.
+- **What would change this.** A better start, such as knowing some of the
+  plaintext (a greeting, a name, a known phrase) or the meaning of some
+  symbols from an earlier break or a captured key, would put an attacker in
+  the warm-start case. A stronger model of English, for example one using
+  longer word sequences, would raise the 80% ceiling. Neither was tested here.
+
+These results show where the attacks built so far fail, not that the cipher
+is secure. It is still a substitution cipher, and it has not been tested
+against known-plaintext attacks or against methods beyond those described.
