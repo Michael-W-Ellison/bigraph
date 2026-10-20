@@ -606,10 +606,12 @@ def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
         correct_letters = sum(a == b for d, p in zip(decoded, plain_words) for a, b in zip(d, p))
         correct_words = sum(d == p for d, p in zip(decoded, plain_words))
     else:
-        # Word boundaries were wrong, so compare the letter sequences instead
+        # Some words decoded to a different length (a word symbol taken for a
+        # word of another length), so align the sequences instead
         matcher = difflib.SequenceMatcher(None, ''.join(plain_words), ''.join(decoded), autojunk=False)
         correct_letters = sum(block.size for block in matcher.get_matching_blocks())
-        correct_words = len(set(decoded) & set(plain_words))
+        matcher = difflib.SequenceMatcher(None, plain_words, decoded, autojunk=False)
+        correct_words = sum(block.size for block in matcher.get_matching_blocks())
 
     return {
         'budget': budget,
@@ -624,8 +626,8 @@ def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
         # short; if not, the model cannot tell the real text apart
         'found_score': round(found_score),
         'true_score': round(true_score(items, truth, model, train_counts, budget)) if markers_found else None,
-        'sample_plain': ' '.join(plain_words[:12]),
-        'sample_decoded': ' '.join(decoded[:12]),
+        'sample_plain': ' '.join(plain_words[:40]),
+        'sample_decoded': ' '.join(decoded[:40]),
     }
 
 
