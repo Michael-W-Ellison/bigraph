@@ -42,7 +42,7 @@ COMMON_WORDS = [
 ]
 
 # Number of symbols shared among the common words, in proportion to their use
-WORD_SYMBOL_BUDGET = 510
+WORD_SYMBOL_BUDGET = 2000
 
 
 def word_symbol_counts(budget: int = WORD_SYMBOL_BUDGET) -> dict:

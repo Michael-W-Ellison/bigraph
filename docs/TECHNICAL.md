@@ -32,9 +32,9 @@ Symbols are generated as SVG graphics with the following structure:
 2. Groups with fewer extensions are used first; when only part of a group is
    needed, that part is chosen at random using the key's symbol seed
 3. Each symbol is uniquely identified by its configuration
-4. Total symbols needed: 1,231 (676 bigrams + numbers + special chars + math
-   operators + 510 common word symbols), which is every shape with at most 3
-   extensions. A larger word symbol budget uses shapes with more extensions.
+4. Total symbols needed: 2,721 (676 bigrams + numbers + special chars + math
+   operators + 2,000 common word symbols). This uses every shape with at most
+   3 extensions and part of the shapes with 4 extensions.
 5. Loading a saved key redraws its symbols from its symbol seed with the current
    generator, so keys saved by older versions do not use older symbols
 
@@ -122,18 +122,18 @@ TEST → TE, ST (even, straightforward)
 
 The 100 most common English words (`COMMON_WORDS` in `constants.py`) have
 their own symbols. Each word gets several, in proportion to how often it is
-used: THE has 37, AND 24, OF 21, and the least common words 2. Each time a
+used: THE has 170, AND 110, OF 95, and the least common words 5. Each time a
 common word appears, one of its symbols is chosen at random with the secure
 random source, so each symbol is used about equally often and a word does not
 look the same each time.
 
 ```
-THE  → one of its 37 symbols
-A    → one of its 16 symbols
+THE  → one of its 170 symbols
+A    → one of its 70 symbols
 ```
 
 `generate_key(word_symbol_budget=...)` sets the total number of word symbols
-(default 510). A budget of 0 gives a key without word symbols, which spells
+(default 2,000). A budget of 0 gives a key without word symbols, which spells
 every word with bigrams.
 
 #### 3.3.1 Single Letters
