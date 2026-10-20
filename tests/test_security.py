@@ -38,8 +38,8 @@ def test_key_file_is_encrypted(km, key):
     assert 'Alice' not in text
     assert 'symbol_to_meaning' not in text
     assert 'WORD_THE' not in text
-    assert set(data) == {'format', 'version', 'created', 'security_version', 'kdf', 'cipher',
-                         'nonce', 'ciphertext'}
+    assert set(data) == {'format', 'version', 'created', 'security_version', 'local_secret',
+                         'key_id', 'creator_id', 'kdf', 'cipher', 'nonce', 'ciphertext'}
 
 
 def test_round_trip(km, key):

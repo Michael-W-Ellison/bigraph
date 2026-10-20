@@ -163,6 +163,16 @@ DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 #   1: secure random keys with message check secrets, in encrypted files
 SECURITY_VERSION = 1
 
+# A key is replaced automatically once it has written this many words, or is
+# this many days old. The attacks in cryptanalysis/ read most of a message at
+# about 6,400 words written with one key plus a few hundred known words, and
+# none succeeded from a cold start up to 25,600 words.
+KEY_WORD_LIMIT = 2000
+KEY_MAX_AGE_DAYS = 30
+
+# Days a message is kept before it is deleted, unless its sender sets another
+DEFAULT_RETENTION_DAYS = 30
+
 # Special marker for partial bigram usage
 PARTIAL_MARKER = '|'
 

@@ -138,6 +138,65 @@ Because both people hold both keys, either one could write a message that
 passes the check code of the other's key: check codes show a message was not
 changed by an outsider, not which of the two wrote it.
 
+**Stored Conversations and Deletion** (`conversation.py`, `store.py`, `keystore.py`):
+
+- **OS key store.** Secrets that must be destroyable live only in the OS key
+  store (Windows Credential Manager, macOS Keychain, or a Linux Secret
+  Service such as GNOME Keyring or KWallet), through the `keyring` package.
+  Without one, keys and messages are not saved at all
+  (`KeyStoreUnavailableError`).
+- **Key files** kept on this computer are encrypted with the password and
+  with a second secret held only in the OS key store. `KeyManager.delete_key`
+  deletes that secret first, so the file and any leftover copy of it cannot
+  be opened even with the password (`KeyDestroyedError`), then overwrites and
+  removes the file. Copies exported for a partner are password-only.
+- **Messages.** `ConversationManager.send` and `receive` keep each sent and
+  received message in a `MessageStore` file encrypted with its own secret in
+  the OS key store. Deleting a message deletes its secret, then overwrites and
+  removes the file.
+- **Retention.** The sender sets how long the recipient keeps each message
+  (`RETAIN` line, 30 days by default, `DEFAULT_RETENTION_DAYS`). Expired
+  messages are deleted at startup and every hour while the GUI is open.
+- **Automatic key replacement.** A key is replaced when it has written
+  `KEY_WORD_LIMIT` (2,000) words or is `KEY_MAX_AGE_DAYS` (30) days old. The
+  next message carries the new key in its control block, encrypted with
+  AES-256-GCM under a key derived from the old key's check secret, so the
+  symbol cipher never carries key material. The recipient's program saves the
+  new key and uses it for the sender's later messages. A replacement key is
+  accepted only if it has the same creator as the key that sent it.
+- **Sender-controlled deletion.** When the sender deletes a message they sent,
+  or one of their old keys is deleted, the next message to that recipient
+  lists it in the control block, and the recipient's program deletes its
+  copy. A program accepts these instructions only for messages and keys
+  created by the sender of the message.
+- **Unused keys.** A replaced key is deleted once no stored message uses it.
+- **State.** Word counts per key, replacements and pending deletion
+  instructions are kept in `state.enc` in the messages folder, encrypted with
+  a secret in the OS key store.
+
+Messages use format 2:
+```
+BIGRAPH-MESSAGE 2
+ID <message ID>
+KEY <key ID>
+SENT <time sent>
+RETAIN <days>
+SYMBOLS 12,-40,977,...
+CONTROL <encrypted control block>   (when there is one)
+CHECK <HMAC-SHA256 of all lines above>
+```
+
+**Limits of deletion.** Deletion is final for data held by this program,
+provided the OS key store really erases deleted secrets (key stores backed by
+hardware, such as the macOS Secure Enclave or a TPM, are the most reliable).
+It cannot reach:
+- copies made outside the program: message text copied to the clipboard or
+  saved to files, screenshots, printouts, or symbols written out by hand;
+- the recipient's copy if the recipient never receives a later message from
+  the sender, or uses a modified program that ignores deletion instructions;
+- anyone who has captured the messages in transit and can break the symbol
+  cipher, or who obtained a key before it was deleted.
+
 **Message Check Codes**:
 
 Saved and copied messages use this format:
@@ -419,6 +478,21 @@ can_encode(key: Dict) -> Tuple[bool, str]
 rotate_key(old_key: Dict) -> Dict
 load_profile() -> Dict
 set_user_name(name: str) -> Dict
+delete_key(filepath: str)
+key_from_data(data: Dict) -> Dict
+```
+
+### ConversationManager
+
+```python
+__init__(key_manager: KeyManager, store: MessageStore = None)
+send(key: Dict, plaintext: str, retain_days: int = 30) -> Dict
+receive(text: str, key: Dict) -> Dict
+message_key_id(text: str) -> Optional[str]
+delete_message(message_id: str)
+delete_conversation(partner: str)
+cleanup() -> Dict
+records(partner: str = None) -> List[Dict]
 get_symbol_for_bigram(key: Dict, bigram: str) -> Optional[int]
 get_symbol_for_number(key: Dict, number: int) -> Optional[int]
 ```

@@ -20,7 +20,9 @@ from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
                        bigram_symbol_counts, SECURITY_VERSION)
 from .symbols import SymbolGenerator
 from .security import (default_keys_directory, ensure_private_directory, write_private_file,
-                       encrypt_key_file, decrypt_key_file, read_key_file_header, KeyFileError)
+                       encrypt_key_file, decrypt_key_file, read_key_file_header, KeyFileError,
+                       shred_file)
+from .keystore import KeyStore
 
 # Key data that is rebuilt when a key is loaded, so it is not stored in key files
 DERIVED_FIELDS = ('meaning_to_symbol', 'symbols_svg')
@@ -33,7 +35,7 @@ class RetiredKeyError(Exception):
 class KeyManager:
     """Manages encryption keys for the bigraph system"""
 
-    def __init__(self, keys_directory: Optional[str] = None):
+    def __init__(self, keys_directory: Optional[str] = None, keystore: Optional[KeyStore] = None):
         """
         Initialize the key manager
 
@@ -41,8 +43,11 @@ class KeyManager:
             keys_directory: Directory to store key files (default: a per-user
                 data folder). It is created, readable only by the current
                 user, when the first key is saved.
+            keystore: OS key store holding the secrets that let keys be
+                deleted for good (default: the system's key store)
         """
         self.keys_directory = keys_directory or default_keys_directory()
+        self.keystore = keystore or KeyStore()
         self.profile_path = os.path.join(self.keys_directory, 'profile.json')
 
     # -- profile ---------------------------------------------------------
@@ -190,7 +195,9 @@ class KeyManager:
         """
         Save a key to an encrypted file in the keys directory
 
-        The file gets a random name, so it does not reveal the recipient.
+        The file gets a random name, so it does not reveal the recipient. The
+        key data is encrypted with the password and with a secret held only in
+        the OS key store, so delete_key can make it unrecoverable.
 
         Args:
             key: Key dictionary to save
@@ -198,14 +205,43 @@ class KeyManager:
 
         Returns:
             Path to the saved key file
+
+        Raises:
+            KeyStoreUnavailableError: there is no OS key store
         """
+        self.keystore.check_available()
+        key.setdefault('key_id', secrets.token_hex(8))
         ensure_private_directory(self.keys_directory)
         while True:
             filepath = os.path.join(self.keys_directory, f"key_{secrets.token_hex(8)}.key")
             if not os.path.exists(filepath):
                 break
-        self.export_key(key, filepath, password)
+
+        # One secret per saved file, so deleting one copy does not affect another
+        secret_name = f"keyfile:{os.path.basename(filepath)}"
+        local_secret = self.keystore.create_secret(secret_name)
+        created = str(key.get('created', ''))[:10]
+        text = encrypt_key_file(self._key_data(key), password, created, self.security_version(key),
+                                local_secret=local_secret, local_name=secret_name,
+                                key_id=key['key_id'], creator_id=key.get('creator_id'))
+        write_private_file(filepath, text)
+        key['_filepath'] = filepath
         return filepath
+
+    def delete_key(self, filepath: str):
+        """
+        Delete a key file so it cannot be recovered
+
+        Deletes the file's secret from the OS key store first, which makes the
+        file and any leftover copy of it unreadable, then overwrites and
+        removes the file. Copies exported for a partner are not affected; the
+        sender's next message tells the partner's program to delete them.
+        """
+        with open(filepath, 'r') as f:
+            header = read_key_file_header(f.read())
+        if header and header.get('local_secret'):
+            self.keystore.delete_secret(header['local_secret'])
+        shred_file(filepath)
 
     def load_key(self, filepath: str, password: Optional[str] = None) -> Dict:
         """
@@ -229,11 +265,17 @@ class KeyManager:
             text = f.read()
 
         if read_key_file_header(text) is not None:
-            key = decrypt_key_file(text, password)
+            key = decrypt_key_file(text, password, self.keystore)
         else:
             key = json.loads(text)
             key['_stored_unencrypted'] = True
 
+        key = self.key_from_data(key)
+        key['_filepath'] = filepath
+        return key
+
+    def key_from_data(self, key: Dict) -> Dict:
+        """Rebuild a full key from stored key data (as kept in key files and messages)"""
         # Convert string keys back to integers for symbol_to_meaning
         key['symbol_to_meaning'] = {int(k): v for k, v in key['symbol_to_meaning'].items()}
         key['meaning_to_symbol'] = {v: k for k, v in key['symbol_to_meaning'].items()}
@@ -274,12 +316,14 @@ class KeyManager:
                     # Encrypted files from before security versions were recorded are version 1
                     info = {'recipient': None, 'created': header.get('created', 'Unknown'),
                             'encrypted': True,
-                            'security_version': header.get('security_version', 1)}
+                            'security_version': header.get('security_version', 1),
+                            'key_id': header.get('key_id'), 'creator_id': header.get('creator_id')}
                 else:
                     data = json.loads(text)
                     info = {'recipient': data.get('recipient', 'Unknown'),
                             'created': data.get('created', 'Unknown'), 'encrypted': False,
-                            'security_version': 0}
+                            'security_version': 0, 'key_id': data.get('key_id'),
+                            'creator_id': data.get('creator_id')}
                 info['outdated'] = info['security_version'] < SECURITY_VERSION
             except (OSError, ValueError, KeyFileError) as e:
                 print(f"Error reading key {filename}: {e}")

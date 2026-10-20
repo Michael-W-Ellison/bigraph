@@ -99,6 +99,8 @@ Words with odd numbers of letters use special partial markers.
 - **Share keys securely**: Export a copy with its own password, and give the file and the password through different channels (for example the password in person)
 - **Change keys regularly**: An attacker who collects enough text written with one key, especially with guessable openings or signatures, can read much of it
 - **Check messages**: Saved and copied messages include a check code; decoding reports a message that has been changed
+- **Deletion is final**: Messages are kept for the time the sender chooses (30 days by default), then deleted so they cannot be recovered. Deleting a message you sent also deletes the recipient's copy when your next message reaches them. This needs an OS key store (Windows Credential Manager, macOS Keychain, or GNOME Keyring/KWallet on Linux), and cannot reach text you copy or save outside the program
+- **Keys replace themselves**: After 2,000 words or 30 days, your next message carries a new key to your partner automatically
 - **Backup keys**: Export keys to backup files
 - **Don't use seeds for real keys**: A seed makes a key reproducible by anyone who knows or guesses it; use seeds only for testing
 
