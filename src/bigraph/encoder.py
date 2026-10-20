@@ -7,29 +7,59 @@ and number handling.
 """
 
 import re
+import secrets
+from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
-                       DEFAULT_FINAL_BIGRAM, LETTERS)
-from .key_manager import KeyManager
+                       LETTERS, SPECIAL_CHARS,
+                       MATH_OPERATORS)
+from .key_manager import KeyManager, RetiredKeyError
+from .security import format_message, parse_message
 
 
 class BigramEncoder:
     """Encodes plaintext messages using the bigram system"""
 
-    def __init__(self, key: Dict):
+    def __init__(self, key: Dict, rng=None):
         """
         Initialize the encoder with a key
 
         Args:
             key: Encryption key dictionary
+            rng: Random source for choosing among symbols with the same
+                meaning (default: the operating system's secure source)
+
+        Raises:
+            RetiredKeyError: the key may only decode (it was made under older
+                security rules, or loaded from a file without a password)
         """
+        if KeyManager.is_retired(key):
+            raise RetiredKeyError("This key can only decode messages. Create a replacement key.")
         self.key = key
         self.key_manager = KeyManager()
+        self.rng = rng if rng is not None else secrets.SystemRandom()
+
+        # Symbols for each common word (keys made without word symbols have none)
+        self.word_symbols = defaultdict(list)
+        for meaning, symbol in key['meaning_to_symbol'].items():
+            if meaning.startswith('WORD_'):
+                word = meaning.split('_')[1]
+                self.word_symbols[word].append(symbol)
+        for symbols in self.word_symbols.values():
+            symbols.sort()
+
+        # Symbols for each bigram: its own, plus extra ones for common bigrams
+        self.bigram_symbols = defaultdict(list)
+        for meaning, symbol in key['meaning_to_symbol'].items():
+            if meaning.startswith('ALT_'):
+                self.bigram_symbols[meaning[4:6]].append(symbol)
+            elif len(meaning) == 2 and meaning.isalpha():
+                self.bigram_symbols[meaning].append(symbol)
+        for symbols in self.bigram_symbols.values():
+            symbols.sort()
 
         # Track rotation counters
-        self.space_marker_index = 0
-        self.a_rotation_index = 0
-        self.i_rotation_index = 0
+        self.letter_rotation_index = {}
 
     def encode(self, plaintext: str) -> List[int]:
         """
@@ -42,9 +72,7 @@ class BigramEncoder:
             List of symbol indices representing the encoded message
         """
         # Reset rotation counters for each encoding
-        self.space_marker_index = 0
-        self.a_rotation_index = 0
-        self.i_rotation_index = 0
+        self.letter_rotation_index = {}
 
         # Preprocess text
         processed = self._preprocess_text(plaintext)
@@ -124,6 +152,11 @@ class BigramEncoder:
         """
         result = []
 
+        # The sentence-ending punctuation is represented by the sentence end
+        # marker, so it is not encoded as a special character
+        if sentence and sentence[-1] in '.!?':
+            sentence = sentence[:-1]
+
         # Split into words and handle each word
         words = sentence.split()
 
@@ -142,24 +175,52 @@ class BigramEncoder:
         """
         Encode a single word
 
+        Special characters and math operators split the word into segments.
+        Each segment is encoded separately, and each special character or
+        operator is encoded as its own symbol. Other characters are dropped.
+
         Args:
             word: Word to encode
 
         Returns:
             List of symbol indices
         """
-        # Remove punctuation and special characters for now (handle separately if needed)
-        # Keep only letters and numbers
-        clean_word = ''.join(c for c in word if c.isalnum())
+        result = []
+        segment = ''
+
+        for c in word:
+            if c.isalnum():
+                segment += c
+            elif c in SPECIAL_CHARS or c in MATH_OPERATORS:
+                result.extend(self._encode_segment(segment))
+                segment = ''
+
+                symbol = self.key_manager.get_symbol_for_special(self.key, c)
+                if symbol is not None:
+                    result.append(symbol)
+
+        result.extend(self._encode_segment(segment))
+
+        return result
+
+    def _encode_segment(self, segment: str) -> List[int]:
+        """
+        Encode a run of letters and digits
+
+        Args:
+            segment: Characters of a word between special characters
+
+        Returns:
+            List of symbol indices
+        """
+        clean_word = segment
 
         if not clean_word:
             return []
 
-        # Handle standalone 'A' or 'I' with rotation
-        if clean_word == 'A':
-            return self._encode_standalone_a()
-        elif clean_word == 'I':
-            return self._encode_standalone_i()
+        # Common words have their own symbols; pick one at random
+        if clean_word in self.word_symbols:
+            return [self.rng.choice(self.word_symbols[clean_word])]
 
         # Handle numbers
         if clean_word.isdigit():
@@ -173,7 +234,7 @@ class BigramEncoder:
             # Even length - encode as bigrams
             for i in range(0, len(clean_word), 2):
                 bigram = clean_word[i:i+2]
-                symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
+                symbol = self._bigram_symbol(bigram)
                 if symbol is not None:
                     result.append(symbol)
         else:
@@ -181,101 +242,56 @@ class BigramEncoder:
             # Encode pairs
             for i in range(0, len(clean_word) - 1, 2):
                 bigram = clean_word[i:i+2]
-                symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
+                symbol = self._bigram_symbol(bigram)
                 if symbol is not None:
                     result.append(symbol)
 
             # Handle last letter
-            last_letter = clean_word[-1]
-            last_symbol = self._encode_final_letter(clean_word, last_letter)
-            result.extend(last_symbol)
+            result.extend(self._encode_single_letter(clean_word[-1]))
 
         return result
 
-    def _encode_final_letter(self, word: str, last_letter: str) -> List[int]:
+    def _bigram_symbol(self, bigram: str) -> Optional[int]:
         """
-        Encode the final letter of an odd-length word
+        Get a symbol for a bigram
 
-        Rules:
-        1. If the letter appears earlier in the word, reuse that bigram with partial marker
-        2. Otherwise, use default bigram (SA) with partial marker
+        Common bigrams have several symbols; one is chosen at random.
 
         Args:
-            word: Full word
-            last_letter: The final letter to encode
+            bigram: Two-letter bigram
 
         Returns:
-            List of symbol indices (partial marker + bigram or bigram + partial marker)
+            Symbol index or None if the bigram has no symbol
         """
-        # Look for the letter earlier in the word
-        for i in range(len(word) - 1):
-            if word[i] == last_letter:
-                # Found it! Determine which bigram it's part of
-                # Find the bigram containing this occurrence
-                bigram_index = i // 2
-                start_idx = bigram_index * 2
+        symbols = self.bigram_symbols.get(bigram)
+        return self.rng.choice(symbols) if symbols else None
 
-                if start_idx + 1 < len(word):
-                    bigram = word[start_idx:start_idx + 2]
+    def _encode_single_letter(self, letter: str) -> List[int]:
+        """
+        Encode a single letter with rotation
 
-                    # Determine if we use first or second letter
-                    if i % 2 == 0:
-                        # Last letter is the first letter of the bigram
-                        # Use | before the symbol
-                        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-                        if symbol is not None:
-                            # Return partial marker indicator (we'll use a special encoding)
-                            # For now, we'll use negative symbol index to indicate partial-before
-                            return [-symbol - 1]  # Negative indicates partial marker before
-                    else:
-                        # Last letter is the second letter of the bigram
-                        # Use | after the symbol
-                        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-                        if symbol is not None:
-                            # Positive but add offset to indicate partial-after
-                            # We'll use a high offset that won't conflict
-                            return [symbol + 10000]  # +10000 indicates partial marker after
+        Used for the final letter of an odd-length word and for single-letter
+        words such as 'A' and 'I'. Each letter cycles through its own bigrams:
+        the first single 'E' uses EA, the next EB, then EC, and so on.
+        Only the first letter of the bigram is used, so the partial marker
+        comes before the symbol.
 
-        # Letter not found - create a bigram with this letter
-        # Use the letter + A as the bigram, and mark to use only the first letter
-        default_bigram = f"{last_letter}A"
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, default_bigram)
+        Args:
+            letter: Letter to encode
 
+        Returns:
+            List containing the partial-before symbol index
+        """
+        if not letter.isalpha():
+            return []
+
+        rotation = self.letter_rotation_index.get(letter, 0)
+        self.letter_rotation_index[letter] = rotation + 1
+
+        bigram = f"{letter}{LETTERS[rotation % len(LETTERS)]}"
+        symbol = self._bigram_symbol(bigram)
         if symbol is not None:
-            # Use first letter of the bigram, so partial marker before
-            return [-symbol - 1]
-
-        return []
-
-    def _encode_standalone_a(self) -> List[int]:
-        """
-        Encode standalone 'A' with rotation
-
-        Uses AA, AB, AC, etc. in sequence
-        """
-        bigram_index = self.a_rotation_index % 26
-        bigram = f"A{LETTERS[bigram_index]}"
-        self.a_rotation_index += 1
-
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-        if symbol is not None:
-            # Return with partial marker (only first letter used)
-            return [-symbol - 1]
-        return []
-
-    def _encode_standalone_i(self) -> List[int]:
-        """
-        Encode standalone 'I' with rotation
-
-        Uses IA, IB, IC, etc. in sequence
-        """
-        bigram_index = self.i_rotation_index % 26
-        bigram = f"I{LETTERS[bigram_index]}"
-        self.i_rotation_index += 1
-
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
-        if symbol is not None:
-            # Return with partial marker (only first letter used)
+            # Negative indicates partial marker before (only first letter used)
             return [-symbol - 1]
         return []
 
@@ -301,19 +317,22 @@ class BigramEncoder:
         Encode a mathematical expression
 
         Format: number [op] number
-        Where op is * or /
+        Where op is +, -, * or /
+        - Addition and subtraction use the + and - operator symbols
         - Multiplication uses positive numbers
         - Division uses negative numbers
         - A special multiply/divide symbol separates operands
 
-        Example: "2 * 3" -> [symbol(2), symbol(MULDIV), symbol(3)]
+        Example: "2 + 3" -> [symbol(2), symbol(+), symbol(3)]
+                 "5 - 1" -> [symbol(5), symbol(-), symbol(1)]
+                 "2 * 3" -> [symbol(2), symbol(MULDIV), symbol(3)]
                  "6 / 2" -> [symbol(6), symbol(MULDIV), symbol(-2)]
 
         Args:
             expression: Math expression string
 
         Returns:
-            List of symbol indices
+            List of symbol indices (empty if the operator is not supported)
         """
         result = []
 
@@ -328,6 +347,9 @@ class BigramEncoder:
         operator = parts[1]
         num2 = parts[2]
 
+        if operator not in ('+', '-', '*', '/'):
+            return result
+
         # Encode first number (always positive)
         for digit in num1:
             if digit.isdigit():
@@ -335,10 +357,16 @@ class BigramEncoder:
                 if symbol is not None:
                     result.append(symbol)
 
-        # Add multiply/divide indicator
-        muldiv_symbol = self.key_manager.get_muldiv_symbol(self.key)
-        if muldiv_symbol is not None:
-            result.append(muldiv_symbol)
+        if operator in ('+', '-'):
+            # Add the operator symbol
+            op_symbol = self.key_manager.get_symbol_for_special(self.key, operator)
+            if op_symbol is not None:
+                result.append(op_symbol)
+        else:
+            # Add multiply/divide indicator
+            muldiv_symbol = self.key_manager.get_muldiv_symbol(self.key)
+            if muldiv_symbol is not None:
+                result.append(muldiv_symbol)
 
         # Encode second number
         # If division, use negative; if multiplication, use positive
@@ -347,7 +375,7 @@ class BigramEncoder:
                 if operator == '/':
                     # Use negative number
                     symbol = self.key_manager.get_symbol_for_number(self.key, -int(digit))
-                else:  # multiplication
+                else:  # addition, subtraction, or multiplication
                     # Use positive number
                     symbol = self.key_manager.get_symbol_for_number(self.key, int(digit))
 
@@ -358,13 +386,15 @@ class BigramEncoder:
 
     def _get_space_marker(self) -> int:
         """
-        Get the next space marker symbol (rotating through the 7 rare bigrams)
+        Get a space marker symbol, chosen at random from the 7 rare bigrams
+
+        A fixed rotation would let an attacker find the markers, because
+        markers used in a strict cycle always alternate with each other.
 
         Returns:
             Symbol index for space marker
         """
-        marker = SPACE_MARKERS[self.space_marker_index % len(SPACE_MARKERS)]
-        self.space_marker_index += 1
+        marker = self.rng.choice(SPACE_MARKERS)
 
         symbol = self.key_manager.get_symbol_for_space_marker(self.key, marker)
         return symbol if symbol is not None else 0
@@ -378,28 +408,42 @@ class BigramEncoder:
         """
         return [self._get_space_marker(), self._get_space_marker()]
 
+    def format_message(self, encoded: List[int]) -> str:
+        """
+        Text of an encoded message, with a check code that detects changes
+
+        Args:
+            encoded: List of symbol indices
+
+        Returns:
+            Message text (see security.format_message)
+        """
+        return format_message(encoded, self.key)
+
     def save_encoded_message(self, encoded: List[int], filepath: str):
         """
-        Save encoded message to a file
+        Save encoded message to a file, with its check code
 
         Args:
             encoded: List of symbol indices
             filepath: Path to save the file
         """
         with open(filepath, 'w') as f:
-            # Write as comma-separated numbers
-            f.write(','.join(map(str, encoded)))
+            f.write(self.format_message(encoded))
 
     def load_encoded_message(self, filepath: str) -> List[int]:
         """
-        Load encoded message from a file
+        Load encoded message from a file and verify its check code
 
         Args:
             filepath: Path to the encoded message file
 
         Returns:
             List of symbol indices
+
+        Raises:
+            MessageIntegrityError: the message was changed
         """
         with open(filepath, 'r') as f:
-            content = f.read().strip()
-            return [int(x) for x in content.split(',') if x.strip()]
+            encoded, _ = parse_message(f.read(), self.key)
+        return encoded

@@ -3,20 +3,37 @@ Symbol generation for the Bigraph Cryptography System
 
 Generates geometric line-based symbols using SVG format.
 Each symbol consists of a primary line (vertical or horizontal) with
-short extensions at controlled positions and angles.
+extensions at controlled positions and angles.
 
 Design Rules:
 - Primary line: vertical or horizontal
-- Extensions: placed at start, middle, or end of primary line
-- Only ONE extension per position
-- Extensions are SHORT (15 pixels)
-- Extensions do NOT cross each other
-- Extensions can be perpendicular (90°) or diagonal (45°)
+- Extensions: placed at the start, middle, or end of the primary line
+- Each position can have an extension on one or both sides of the primary line
+- Extensions are perpendicular (90°) or diagonal (45°), and a diagonal can
+  slant toward either end of the primary line
+- A diagonal at an end of the primary line that points away from the line
+  is half the normal length, to keep the symbols compact
+- Extensions do not cross each other; diagonal tips may touch to form
+  closed triangles
+- Two diagonals at the same position that would form one straight line
+  crossing the primary line are not used
+- A plain vertical line is not used as a symbol; it is the partial marker
+  ("|") that shows only one letter of a bigram is used
 """
 
+import math
 import random
-from typing import List, Dict, Tuple
+from itertools import combinations, product
+from typing import List, Dict
 from .constants import TOTAL_SYMBOLS
+
+POSITIONS = ['start', 'middle', 'end']
+
+# Perpendicular, or diagonal slanting toward the start or end of the primary line
+EXTENSION_TYPES = ['perpendicular', 'toward_start', 'toward_end']
+
+# Sides of the primary line: left/right for vertical, up/down for horizontal
+SIDES = {'vertical': ['left', 'right'], 'horizontal': ['up', 'down']}
 
 
 class SymbolGenerator:
@@ -30,42 +47,45 @@ class SymbolGenerator:
             seed: Random seed for reproducible symbol generation
         """
         self.seed = seed
-        if seed is not None:
-            random.seed(seed)
+        self.random = random.Random(seed)
 
         self.symbol_size = 100  # SVG viewBox size
-        self.line_width = 3
+        self.line_width = 4
         self.margin = 15
-        self.extension_length = 15  # SHORT extensions to prevent crossing
 
-    def generate_all_symbols(self) -> List[str]:
+        # Diagonals from neighbouring positions on the same side meet at their
+        # tips, so a diagonal covers half the spacing between positions
+        spacing = (self.symbol_size - 2 * self.margin) / 2
+        self.diagonal_offset = spacing / 2
+        self.extension_length = self.diagonal_offset * math.sqrt(2)
+
+    def generate_all_symbols(self, count: int = TOTAL_SYMBOLS) -> List[str]:
         """
         Generate all unique symbols needed for the system
+
+        Args:
+            count: Number of symbols to generate
 
         Returns:
             List of SVG strings, one for each symbol
         """
-        symbols = []
-
-        # Generate symbols using systematic approach
-        symbol_configs = self._generate_symbol_configurations(TOTAL_SYMBOLS)
-
-        for config in symbol_configs:
-            svg = self._create_svg_symbol(config)
-            symbols.append(svg)
-
-        return symbols
+        symbol_configs = self._generate_symbol_configurations(count)
+        return [self._create_svg_symbol(config) for config in symbol_configs]
 
     def _generate_symbol_configurations(self, count: int) -> List[Dict]:
         """
-        Generate unique symbol configurations systematically
+        Generate unique symbol configurations
+
+        Symbols with fewer extensions are used first. When only part of a
+        group with the same number of extensions is needed, that part is
+        chosen at random using the seed.
 
         Each configuration:
         - Primary line orientation (vertical/horizontal)
-        - Extensions: list of (position, direction, angle)
+        - Extensions: list of {position, side, type}
           * position: 'start', 'middle', or 'end'
-          * direction: 'left', 'right' (for vertical) or 'up', 'down' (for horizontal)
-          * angle: 90 (perpendicular) or 45 (diagonal)
+          * side: 'left', 'right' (for vertical) or 'up', 'down' (for horizontal)
+          * type: 'perpendicular', 'toward_start', or 'toward_end'
 
         Args:
             count: Number of unique symbols to generate
@@ -74,216 +94,80 @@ class SymbolGenerator:
             List of configuration dictionaries
         """
         configs = []
-        config_set = set()
+        num_slots = len(POSITIONS) * 2
 
-        # 1. No extensions (2 configs: vertical, horizontal)
-        for orientation in ['vertical', 'horizontal']:
-            config = {
-                'orientation': orientation,
-                'extensions': []
-            }
-            config_hash = self._hash_config(config)
-            if config_hash not in config_set:
-                config_set.add(config_hash)
-                configs.append(config)
+        for num_extensions in range(num_slots + 1):
+            group = self._configurations_with_extensions(num_extensions)
+            needed = count - len(configs)
 
-        # 2. Single extension configurations
-        # Use more positions and angles for variety
-        for orientation in ['vertical', 'horizontal']:
-            for position in ['start', 'quarter', 'middle', 'threequarter', 'end']:
-                if orientation == 'vertical':
-                    directions = ['left', 'right']
-                else:
-                    directions = ['up', 'down']
-
-                for direction in directions:
-                    for angle in [90, 45, 30, 60]:  # More angle varieties
-                        config = {
-                            'orientation': orientation,
-                            'extensions': [{
-                                'position': position,
-                                'direction': direction,
-                                'angle': angle
-                            }]
-                        }
-                        config_hash = self._hash_config(config)
-                        if config_hash not in config_set:
-                            config_set.add(config_hash)
-                            configs.append(config)
-
-        # 3. Two extensions at different positions
-        # With 15px extensions, crossing is not a concern
-        # Use subset of combinations to get to 718 total
-        for orientation in ['vertical', 'horizontal']:
-            all_positions = ['start', 'quarter', 'middle', 'threequarter', 'end']
-            # Generate pairs of positions
-            for i, pos1 in enumerate(all_positions):
-                for pos2 in all_positions[i+1:]:  # Only pairs where pos2 comes after pos1
-                    if orientation == 'vertical':
-                        directions = ['left', 'right']
-                    else:
-                        directions = ['up', 'down']
-
-                    for dir1 in directions:
-                        for dir2 in directions:
-                            for angle1 in [90, 45]:  # Limit angles for two-extension
-                                for angle2 in [90, 45]:
-                                    config = {
-                                        'orientation': orientation,
-                                        'extensions': [
-                                            {'position': pos1, 'direction': dir1, 'angle': angle1},
-                                            {'position': pos2, 'direction': dir2, 'angle': angle2}
-                                        ]
-                                    }
-                                    config_hash = self._hash_config(config)
-                                    if config_hash not in config_set:
-                                        config_set.add(config_hash)
-                                        configs.append(config)
-
-        # 4. Three extensions at all three positions
-        # With 15px extensions, all combinations are safe
-        for orientation in ['vertical', 'horizontal']:
-            if orientation == 'vertical':
-                directions = ['left', 'right']
+            if len(group) <= needed:
+                configs.extend(group)
             else:
-                directions = ['up', 'down']
+                configs.extend(self.random.sample(group, needed))
 
-            for dir1 in directions:
-                for dir2 in directions:
-                    for dir3 in directions:
-                        for angle1 in [90, 45]:
-                            for angle2 in [90, 45]:
-                                for angle3 in [90, 45]:
-                                    config = {
-                                        'orientation': orientation,
-                                        'extensions': [
-                                            {'position': 'start', 'direction': dir1, 'angle': angle1},
-                                            {'position': 'middle', 'direction': dir2, 'angle': angle2},
-                                            {'position': 'end', 'direction': dir3, 'angle': angle3}
-                                        ]
-                                    }
-                                    config_hash = self._hash_config(config)
-                                    if config_hash not in config_set:
-                                        config_set.add(config_hash)
-                                        configs.append(config)
+            if len(configs) == count:
+                break
 
-        # 5. If still need more, add safe random variations with varied extension lengths
-        attempts = 0
-        max_attempts = 50000  # Increased attempts
-        while len(configs) < count and attempts < max_attempts:
-            config = self._generate_safe_random_config()
-            config_hash = self._hash_config(config)
-            if config_hash not in config_set:
-                config_set.add(config_hash)
-                configs.append(config)
-            attempts += 1
-
-        # 6. If still not enough, duplicate some with variation
-        while len(configs) < count:
-            # Take existing configs and add slight variations
-            base_config = configs[len(configs) % len(configs)]
-            config = {
-                'orientation': base_config['orientation'],
-                'extensions': base_config['extensions'].copy()
-            }
-            # Add a small random extension if possible
-            if len(config['extensions']) < 3:
-                pos_options = ['start', 'quarter', 'middle', 'threequarter', 'end']
-                used_positions = [e['position'] for e in config['extensions']]
-                available = [p for p in pos_options if p not in used_positions]
-                if available:
-                    new_ext = {
-                        'position': random.choice(available),
-                        'direction': random.choice(['left', 'right'] if config['orientation'] == 'vertical' else ['up', 'down']),
-                        'angle': random.choice([90, 45, 30, 60])
-                    }
-                    config['extensions'].append(new_ext)
-                    config_hash = self._hash_config(config)
-                    if config_hash not in config_set:
-                        config_set.add(config_hash)
-                        configs.append(config)
-                    else:
-                        # If duplicate, just add a simple unique one
-                        configs.append(self._generate_safe_random_config())
-                else:
-                    configs.append(self._generate_safe_random_config())
-            else:
-                configs.append(self._generate_safe_random_config())
+        if len(configs) < count:
+            raise ValueError(f"Cannot generate {count} unique symbols")
 
         return configs
 
-    def _would_cross(self, orientation: str, pos1: str, dir1: str, angle1: int,
-                     pos2: str, dir2: str, angle2: int) -> bool:
+    def _configurations_with_extensions(self, num_extensions: int) -> List[Dict]:
+        """Generate every configuration with the given number of extensions"""
+        configs = []
+
+        for orientation in ['vertical', 'horizontal']:
+            slots = [(position, side) for position in POSITIONS
+                     for side in SIDES[orientation]]
+
+            for chosen_slots in combinations(slots, num_extensions):
+                for types in product(EXTENSION_TYPES, repeat=num_extensions):
+                    extensions = [
+                        {'position': position, 'side': side, 'type': ext_type}
+                        for (position, side), ext_type in zip(chosen_slots, types)
+                    ]
+                    is_partial_marker = orientation == 'vertical' and not extensions
+                    if not is_partial_marker and not self._has_crossing_diagonals(extensions):
+                        configs.append({
+                            'orientation': orientation,
+                            'extensions': extensions
+                        })
+
+        return configs
+
+    def _has_crossing_diagonals(self, extensions: List[Dict]) -> bool:
         """
-        Check if two extensions would cross each other
-
-        For simplicity, we'll be conservative:
-        - Diagonal extensions from different positions going toward each other: potential cross
-        - Extensions at start and end going diagonally toward middle: potential cross
+        Check for two diagonals at the same position on opposite sides that
+        slant in opposite directions, forming one line across the primary line
         """
-        # If both are perpendicular (90°), they won't cross
-        if angle1 == 90 and angle2 == 90:
-            return False
-
-        # If they're on opposite sides, they won't cross
-        if orientation == 'vertical':
-            if (dir1 == 'left' and dir2 == 'right') or (dir1 == 'right' and dir2 == 'left'):
-                return False
-        else:
-            if (dir1 == 'up' and dir2 == 'down') or (dir1 == 'down' and dir2 == 'up'):
-                return False
-
-        # Diagonal extensions from adjacent positions going same direction might cross
-        if angle1 == 45 and angle2 == 45:
-            if dir1 == dir2:
-                # Same side, same angle - might get too close but won't cross
-                return False
-            else:
-                # Different sides, diagonal - could cross
+        for position in POSITIONS:
+            diagonal_types = {e['type'] for e in extensions
+                              if e['position'] == position and e['type'] != 'perpendicular'}
+            if diagonal_types == {'toward_start', 'toward_end'}:
                 return True
+        return False
 
-        # Conservative: if one diagonal, one perpendicular, same side
-        if dir1 == dir2 and (angle1 == 45 or angle2 == 45):
-            return False
+    def create_partial_marker_svg(self) -> str:
+        """
+        Create the SVG for the partial marker ("|")
 
-        return False  # Default to allowing
+        The marker is the plain vertical primary line, drawn in a narrow
+        viewBox so it takes less horizontal space than a symbol.
 
-    def _generate_safe_random_config(self) -> Dict:
-        """Generate a random configuration that avoids crossing"""
-        orientation = random.choice(['vertical', 'horizontal'])
-        num_extensions = random.randint(0, 3)
+        Returns:
+            SVG string
+        """
+        size = self.symbol_size
+        width = 2 * self.margin
+        left = (size - width) / 2
+        center = size / 2
 
-        if num_extensions == 0:
-            return {'orientation': orientation, 'extensions': []}
-
-        if orientation == 'vertical':
-            directions = ['left', 'right']
-        else:
-            directions = ['up', 'down']
-
-        # Use all available positions and angles
-        all_positions = ['start', 'quarter', 'middle', 'threequarter', 'end']
-        positions = random.sample(all_positions, min(num_extensions, len(all_positions)))
-
-        extensions = []
-        for pos in positions:
-            direction = random.choice(directions)  # Allow mixed directions
-            angle = random.choice([90, 45, 30, 60])
-            extensions.append({
-                'position': pos,
-                'direction': direction,
-                'angle': angle
-            })
-
-        return {'orientation': orientation, 'extensions': extensions}
-
-    def _hash_config(self, config: Dict) -> str:
-        """Create a hashable string from configuration"""
-        ext_str = '_'.join([
-            f"{e['position']}{e['direction']}{e['angle']}"
-            for e in sorted(config['extensions'], key=lambda x: x['position'])
-        ])
-        return f"{config['orientation']}_{ext_str}"
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{left:g} 0 {width} {size}" '
+                f'width="{width}" height="{size}">\n'
+                f'  <line x1="{center:g}" y1="{self.margin}" x2="{center:g}" y2="{size - self.margin}" '
+                f'stroke="black" stroke-width="{self.line_width}" stroke-linecap="square"/>\n'
+                f'</svg>')
 
     def _create_svg_symbol(self, config: Dict) -> str:
         """
@@ -296,145 +180,60 @@ class SymbolGenerator:
             SVG string
         """
         size = self.symbol_size
-        margin = self.margin
-        line_width = self.line_width
+        start = self.margin
+        end = size - self.margin
+
+        segments = [((start, 0), (end, 0))]
+        for ext in config['extensions']:
+            segments.append(self._extension_segment(config['orientation'], ext))
 
         lines = []
+        for p1, p2 in segments:
+            x1, y1 = self._to_xy(config['orientation'], p1)
+            x2, y2 = self._to_xy(config['orientation'], p2)
+            lines.append(f'<line x1="{x1:g}" y1="{y1:g}" x2="{x2:g}" y2="{y2:g}" '
+                         f'stroke="black" stroke-width="{self.line_width}" '
+                         f'stroke-linecap="square"/>')
 
-        # Create primary line
-        if config['orientation'] == 'vertical':
-            # Vertical line in the center
-            x = size / 2
-            y1 = margin
-            y2 = size - margin
-            lines.append(f'<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" '
-                        f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>')
-
-            # Add extensions
-            for ext in config['extensions']:
-                ext_line = self._create_vertical_extension(x, y1, y2, ext)
-                if ext_line:
-                    lines.append(ext_line)
-        else:
-            # Horizontal line in the center
-            y = size / 2
-            x1 = margin
-            x2 = size - margin
-            lines.append(f'<line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}" '
-                        f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>')
-
-            # Add extensions
-            for ext in config['extensions']:
-                ext_line = self._create_horizontal_extension(y, x1, x2, ext)
-                if ext_line:
-                    lines.append(ext_line)
-
-        # Combine into SVG
         svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="100" height="100">
 {chr(10).join(['  ' + line for line in lines])}
 </svg>'''
 
         return svg
 
-    def _create_vertical_extension(self, x: float, y1: float, y2: float, ext: Dict) -> str:
-        """Create extension line for a vertical primary line"""
-        line_width = self.line_width
-        ext_length = self.extension_length
+    def _extension_segment(self, orientation: str, ext: Dict):
+        """
+        Get the end points of an extension
 
-        # Determine y position on primary line
-        if ext['position'] == 'start':
-            y = y1
-        elif ext['position'] == 'quarter':
-            y = y1 + (y2 - y1) * 0.25
-        elif ext['position'] == 'middle':
-            y = (y1 + y2) / 2
-        elif ext['position'] == 'threequarter':
-            y = y1 + (y2 - y1) * 0.75
-        else:  # end
-            y = y2
+        Points are (along, across): the distance along the primary line, and
+        the signed distance from it (negative for left/up).
+        """
+        start = self.margin
+        end = self.symbol_size - self.margin
+        along = {'start': start, 'middle': (start + end) / 2, 'end': end}[ext['position']]
+        sign = -1 if ext['side'] == SIDES[orientation][0] else 1
 
-        direction = ext['direction']
-        angle = ext['angle']
+        if ext['type'] == 'perpendicular':
+            return (along, 0), (along, sign * self.extension_length)
 
-        # Calculate end point based on direction and angle
-        import math
-        if direction == 'left':
-            if angle == 90:  # Perpendicular left
-                x2 = x - ext_length
-                y2 = y
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                x2 = x - ext_length * math.cos(angle_rad)
-                # Alternate up/down based on position
-                if ext['position'] in ['start', 'quarter']:
-                    y2 = y - ext_length * math.sin(angle_rad)  # Up
-                else:
-                    y2 = y + ext_length * math.sin(angle_rad)  # Down
-        else:  # right
-            if angle == 90:  # Perpendicular right
-                x2 = x + ext_length
-                y2 = y
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                x2 = x + ext_length * math.cos(angle_rad)
-                # Alternate up/down based on position
-                if ext['position'] in ['start', 'quarter']:
-                    y2 = y - ext_length * math.sin(angle_rad)  # Up
-                else:
-                    y2 = y + ext_length * math.sin(angle_rad)  # Down
+        offset = self.diagonal_offset
+        points_away = ((ext['position'] == 'start' and ext['type'] == 'toward_start') or
+                       (ext['position'] == 'end' and ext['type'] == 'toward_end'))
+        if points_away:
+            offset /= 2
 
-        return f'<line x1="{x}" y1="{y}" x2="{x2}" y2="{y2}" ' \
-               f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>'
+        direction = -1 if ext['type'] == 'toward_start' else 1
+        return (along, 0), (along + direction * offset, sign * offset)
 
-    def _create_horizontal_extension(self, y: float, x1: float, x2: float, ext: Dict) -> str:
-        """Create extension line for a horizontal primary line"""
-        line_width = self.line_width
-        ext_length = self.extension_length
-
-        # Determine x position on primary line
-        if ext['position'] == 'start':
-            x = x1
-        elif ext['position'] == 'quarter':
-            x = x1 + (x2 - x1) * 0.25
-        elif ext['position'] == 'middle':
-            x = (x1 + x2) / 2
-        elif ext['position'] == 'threequarter':
-            x = x1 + (x2 - x1) * 0.75
-        else:  # end
-            x = x2
-
-        direction = ext['direction']
-        angle = ext['angle']
-
-        # Calculate end point based on direction and angle
-        import math
-        if direction == 'up':
-            if angle == 90:  # Perpendicular up
-                x2 = x
-                y2 = y - ext_length
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                y2 = y - ext_length * math.sin(angle_rad)
-                # Alternate left/right based on position
-                if ext['position'] in ['start', 'quarter']:
-                    x2 = x + ext_length * math.cos(angle_rad)  # Right
-                else:
-                    x2 = x - ext_length * math.cos(angle_rad)  # Left
-        else:  # down
-            if angle == 90:  # Perpendicular down
-                x2 = x
-                y2 = y + ext_length
-            else:  # Diagonal angles
-                angle_rad = math.radians(angle)
-                y2 = y + ext_length * math.sin(angle_rad)
-                # Alternate left/right based on position
-                if ext['position'] in ['start', 'quarter']:
-                    x2 = x + ext_length * math.cos(angle_rad)  # Right
-                else:
-                    x2 = x - ext_length * math.cos(angle_rad)  # Left
-
-        return f'<line x1="{x}" y1="{y}" x2="{x2}" y2="{y2}" ' \
-               f'stroke="black" stroke-width="{line_width}" stroke-linecap="round"/>'
+    def _to_xy(self, orientation: str, point) -> tuple:
+        """Convert an (along, across) point to SVG coordinates"""
+        along, across = point
+        center = self.symbol_size / 2
+        if orientation == 'vertical':
+            x, y = center + across, along
+        else:
+            x, y = along, center + across
+        return round(x, 2), round(y, 2)
 
     def save_symbol_to_file(self, svg_content: str, filename: str):
         """Save an SVG symbol to a file"""

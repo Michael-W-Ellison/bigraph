@@ -3,7 +3,7 @@ Main GUI Window for Bigraph Cryptography System
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import sys
 import os
 
@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from bigraph.key_manager import KeyManager
 from bigraph.encoder import BigramEncoder
 from bigraph.decoder import BigramDecoder
+from bigraph.security import (check_password, KeyFileError, PasswordRequiredError,
+                              WrongPasswordError, MessageIntegrityError)
 
 
 class BigramCryptoGUI:
@@ -47,6 +49,19 @@ class BigramCryptoGUI:
         self.status_bar = tk.Label(root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
+        self.check_outdated_keys()
+
+    def check_outdated_keys(self):
+        """Tell the user about keys made under older security rules"""
+        outdated = [k for k in self.key_manager.list_keys() if k['outdated']]
+        if outdated:
+            messagebox.showwarning(
+                "Keys need replacing",
+                f"{len(outdated)} key(s) were made under older security rules or are stored "
+                "without a password. They can still decode messages, but cannot write new ones.\n\n"
+                "Load one of your own outdated keys on the Encode tab to create its replacement, "
+                "and ask your partners to replace theirs.")
+
     def create_encode_tab(self):
         """Create the encode message tab"""
         encode_frame = ttk.Frame(self.notebook)
@@ -75,7 +90,7 @@ class BigramCryptoGUI:
         ttk.Button(encode_frame, text="Encode Message", command=self.encode_message).pack(pady=10)
 
         # Output
-        output_frame = ttk.LabelFrame(encode_frame, text="Encoded Output (Number List)", padding=10)
+        output_frame = ttk.LabelFrame(encode_frame, text="Encoded Output (Number List and Check Code)", padding=10)
         output_frame.pack(fill='both', expand=True, padx=10, pady=10)
 
         self.encode_output = tk.Text(output_frame, height=8, wrap=tk.WORD)
@@ -152,11 +167,7 @@ class BigramCryptoGUI:
         self.recipient_name = tk.StringVar()
         ttk.Entry(gen_frame, textvariable=self.recipient_name, width=30).grid(row=0, column=1, padx=5, pady=5)
 
-        ttk.Label(gen_frame, text="Seed (optional):").grid(row=1, column=0, sticky='w', padx=5, pady=5)
-        self.key_seed = tk.StringVar()
-        ttk.Entry(gen_frame, textvariable=self.key_seed, width=30).grid(row=1, column=1, padx=5, pady=5)
-
-        ttk.Button(gen_frame, text="Generate Key", command=self.generate_new_key).grid(row=2, column=0, columnspan=2, pady=10)
+        ttk.Button(gen_frame, text="Generate Key", command=self.generate_new_key).grid(row=1, column=0, columnspan=2, pady=10)
 
         # Key list
         list_frame = ttk.LabelFrame(key_frame, text="Available Keys", padding=10)
@@ -222,54 +233,154 @@ class BigramCryptoGUI:
     def refresh_encode_keys(self):
         """Refresh the encode key dropdown"""
         keys = self.key_manager.list_keys()
-        key_names = [f"{k['recipient']} - {k['created'][:10]}" for k in keys]
-        self.encode_key_combo['values'] = key_names
+        self.encode_key_combo['values'] = [self.key_display_name(k) for k in keys]
         self.encode_keys_list = keys
 
     def refresh_decode_keys(self):
         """Refresh the decode key dropdown"""
         keys = self.key_manager.list_keys()
-        key_names = [f"{k['recipient']} - {k['created'][:10]}" for k in keys]
-        self.decode_key_combo['values'] = key_names
+        self.decode_key_combo['values'] = [self.key_display_name(k) for k in keys]
         self.decode_keys_list = keys
 
     def refresh_viewer_keys(self):
         """Refresh the viewer key dropdown"""
         keys = self.key_manager.list_keys()
-        key_names = [f"{k['recipient']} - {k['created'][:10]}" for k in keys]
-        self.viewer_key_combo['values'] = key_names
+        self.viewer_key_combo['values'] = [self.key_display_name(k) for k in keys]
         self.viewer_keys_list = keys
 
-    def load_encode_key(self):
-        """Load selected key for encoding"""
-        idx = self.encode_key_combo.current()
-        if idx >= 0 and idx < len(self.encode_keys_list):
-            key_info = self.encode_keys_list[idx]
-            self.current_encode_key = self.key_manager.load_key(key_info['filepath'])
-            self.status_bar.config(text=f"Loaded key for {key_info['recipient']}")
+    @staticmethod
+    def key_display_name(key_info):
+        """Name for a key in the lists; encrypted keys show only their date"""
+        created = str(key_info['created'])[:10]
+        if key_info['encrypted']:
+            name = f"Locked key - {created} ({key_info['filename']})"
         else:
+            name = f"{key_info['recipient']} - {created} (no password)"
+        if key_info['outdated']:
+            name += " - decode only, needs replacing"
+        return name
+
+    def ask_password(self, prompt, confirm=False):
+        """Ask for a password; with confirm, ask twice and check its length"""
+        password = simpledialog.askstring("Password", prompt, show='*', parent=self.root)
+        if password is None:
+            return None
+        if confirm:
+            try:
+                check_password(password)
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+                return None
+            again = simpledialog.askstring("Password", "Enter the password again:", show='*',
+                                           parent=self.root)
+            if again != password:
+                messagebox.showerror("Error", "The passwords do not match")
+                return None
+        return password
+
+    def open_key(self, key_info):
+        """
+        Load a key, asking for its password and showing any warnings
+
+        Returns:
+            The key, or None if it was not opened
+        """
+        password = None
+        if key_info['encrypted']:
+            password = self.ask_password(f"Password for {key_info['filename']}:")
+            if password is None:
+                return None
+        try:
+            key = self.key_manager.load_key(key_info['filepath'], password)
+        except WrongPasswordError:
+            messagebox.showerror("Error", "Wrong password, or the key file has been changed")
+            return None
+        except (KeyFileError, OSError, ValueError) as e:
+            messagebox.showerror("Error", f"Could not open key: {e}")
+            return None
+
+        key['_password'] = password
+        warnings = self.key_manager.key_warnings(key)
+        if warnings:
+            messagebox.showwarning("Key warning", "\n\n".join(warnings))
+        return key
+
+    def selected_key(self, combo, keys_list):
+        idx = combo.current()
+        if idx < 0 or idx >= len(keys_list):
             messagebox.showwarning("Warning", "Please select a key first")
+            return None
+        return self.open_key(keys_list[idx])
+
+    def load_encode_key(self):
+        """Load selected key for encoding; outdated own keys are replaced first"""
+        key = self.selected_key(self.encode_key_combo, self.encode_keys_list)
+        if not key:
+            return
+        allowed, reason = self.key_manager.can_encode(key)
+        if not allowed:
+            if self.key_manager.is_retired(key) and self.key_manager.is_own_key(key):
+                if not messagebox.askyesno("Replace key", reason + "\n\nCreate the replacement now?"):
+                    return
+                key = self.replace_key(key)
+                if key is None:
+                    return
+            else:
+                messagebox.showerror("Cannot encode", reason)
+                return
+        self.current_encode_key = key
+        self.status_bar.config(text=f"Loaded key for {key['recipient']}")
+
+    def replace_key(self, old_key):
+        """
+        Create and save a replacement for an outdated key, and offer to share it
+
+        Returns:
+            The new key, or None if it was not created
+        """
+        password = old_key.get('_password')
+        if not password:
+            password = self.ask_password(
+                f"Choose a password to protect the new key for {old_key.get('recipient')}:", confirm=True)
+            if password is None:
+                return None
+        new_key = self.key_manager.rotate_key(old_key)
+        self.key_manager.save_key(new_key, password)
+        self.refresh_all_keys()
+        self.offer_partner_copy(new_key)
+        self.status_bar.config(text=f"Replaced the key for {new_key['recipient']}; "
+                                    "the old key is kept for decoding")
+        return new_key
+
+    def offer_partner_copy(self, key):
+        """Offer to export the copy of a new key that the recipient keeps"""
+        if messagebox.askyesno(
+                "Copy for recipient",
+                f"Export a copy of this key for {key['recipient']} now?\n\n"
+                f"{key['recipient']} needs it to read your messages, and their copy also lets you "
+                "recover your messages if you lose your key. Give them the file and its password "
+                "separately."):
+            self.export_copy(key, f"key_for_{key['key_id']}.key")
+
+    def refresh_all_keys(self):
+        self.refresh_key_list()
+        self.refresh_encode_keys()
+        self.refresh_decode_keys()
+        self.refresh_viewer_keys()
 
     def load_decode_key(self):
         """Load selected key for decoding"""
-        idx = self.decode_key_combo.current()
-        if idx >= 0 and idx < len(self.decode_keys_list):
-            key_info = self.decode_keys_list[idx]
-            self.current_decode_key = self.key_manager.load_key(key_info['filepath'])
-            self.status_bar.config(text=f"Loaded key for {key_info['recipient']}")
-        else:
-            messagebox.showwarning("Warning", "Please select a key first")
+        key = self.selected_key(self.decode_key_combo, self.decode_keys_list)
+        if key:
+            self.current_decode_key = key
+            self.status_bar.config(text=f"Loaded key for {key['recipient']}")
 
     def load_viewer_key(self):
         """Load selected key for viewing"""
-        idx = self.viewer_key_combo.current()
-        if idx >= 0 and idx < len(self.viewer_keys_list):
-            key_info = self.viewer_keys_list[idx]
-            key = self.key_manager.load_key(key_info['filepath'])
+        key = self.selected_key(self.viewer_key_combo, self.viewer_keys_list)
+        if key:
             self.display_symbols(key)
-            self.status_bar.config(text=f"Loaded symbols for {key_info['recipient']}")
-        else:
-            messagebox.showwarning("Warning", "Please select a key first")
+            self.status_bar.config(text=f"Loaded symbols for {key['recipient']}")
 
     def encode_message(self):
         """Encode the input message"""
@@ -286,9 +397,9 @@ class BigramCryptoGUI:
             encoder = BigramEncoder(self.current_encode_key)
             encoded = encoder.encode(plaintext)
 
-            # Display encoded message
+            # Display encoded message, with its check code
             self.encode_output.delete('1.0', tk.END)
-            self.encode_output.insert('1.0', ','.join(map(str, encoded)))
+            self.encode_output.insert('1.0', encoder.format_message(encoded))
 
             self.status_bar.config(text=f"Encoded {len(plaintext)} characters to {len(encoded)} symbols")
         except Exception as e:
@@ -306,17 +417,18 @@ class BigramCryptoGUI:
             return
 
         try:
-            # Parse number list
-            encoded = [int(x.strip()) for x in encoded_text.split(',') if x.strip()]
-
             decoder = BigramDecoder(self.current_decode_key)
+            encoded, verified = decoder.read_message(encoded_text)
             decoded = decoder.decode(encoded)
 
             # Display decoded message
             self.decode_output.delete('1.0', tk.END)
             self.decode_output.insert('1.0', decoded)
 
-            self.status_bar.config(text=f"Decoded {len(encoded)} symbols to {len(decoded)} characters")
+            check = "check code verified" if verified else "no check code, so changes cannot be detected"
+            self.status_bar.config(text=f"Decoded {len(encoded)} symbols to {len(decoded)} characters ({check})")
+        except MessageIntegrityError as e:
+            messagebox.showerror("Message changed", str(e))
         except Exception as e:
             messagebox.showerror("Error", f"Decoding failed: {str(e)}")
 
@@ -383,26 +495,34 @@ class BigramCryptoGUI:
             messagebox.showwarning("Warning", "Please enter a recipient name")
             return
 
-        seed_str = self.key_seed.get().strip()
-        seed = int(seed_str) if seed_str else None
+        # The sender's name goes in each key, so the recipient knows whose key it is
+        if not self.key_manager.load_profile()['name']:
+            name = simpledialog.askstring("Your name", "Your name, as recipients will see it:",
+                                          parent=self.root)
+            if not name:
+                return
+            self.key_manager.set_user_name(name.strip())
+
+        password = self.ask_password(f"Choose a password to protect the key for {recipient}:", confirm=True)
+        if password is None:
+            return
 
         try:
-            key = self.key_manager.generate_key(recipient, seed)
-            filepath = self.key_manager.save_key(key)
+            key = self.key_manager.generate_key(recipient)
+            filepath = self.key_manager.save_key(key, password)
 
             messagebox.showinfo("Success", f"Key generated and saved to:\n{filepath}")
-            self.refresh_key_list()
-            self.refresh_encode_keys()
-            self.refresh_decode_keys()
-            self.refresh_viewer_keys()
+            self.refresh_all_keys()
 
             # Clear inputs
             self.recipient_name.set('')
-            self.key_seed.set('')
 
             self.status_bar.config(text=f"Generated key for {recipient}")
         except Exception as e:
             messagebox.showerror("Error", f"Key generation failed: {str(e)}")
+            return
+
+        self.offer_partner_copy(key)
 
     def refresh_key_list(self):
         """Refresh the key list"""
@@ -414,9 +534,12 @@ class BigramCryptoGUI:
         keys = self.key_manager.list_keys()
 
         for key in keys:
+            recipient = key['recipient'] if key['recipient'] is not None else '(locked)'
+            if key['outdated']:
+                recipient += ' - needs replacing'
             self.key_tree.insert('', 'end', values=(
-                key['recipient'],
-                key['created'][:19],  # Remove microseconds
+                recipient,
+                str(key['created'])[:19],  # Remove microseconds
                 key['filename']
             ))
 
@@ -429,8 +552,22 @@ class BigramCryptoGUI:
 
         item = self.key_tree.item(selection[0])
         filename = item['values'][2]
+        key_info = next((k for k in self.key_manager.list_keys() if k['filename'] == filename), None)
+        if key_info is None:
+            messagebox.showerror("Error", "The key file is no longer there")
+            return
+        key = self.open_key(key_info)
+        if key is None:
+            return
+        self.export_copy(key, filename)
 
-        source_path = os.path.join(self.key_manager.keys_directory, filename)
+    def export_copy(self, key, filename):
+        """Write a password-protected copy of a key, for the partner or for recovery"""
+        password = self.ask_password(
+            "Choose a password for the exported copy (give it to the recipient separately "
+            "from the file, for example in person):", confirm=True)
+        if password is None:
+            return
 
         dest_path = filedialog.asksaveasfilename(
             defaultextension=".key",
@@ -439,8 +576,11 @@ class BigramCryptoGUI:
         )
 
         if dest_path:
-            key = self.key_manager.load_key(source_path)
-            self.key_manager.export_key(key, dest_path)
+            try:
+                self.key_manager.export_key(key, dest_path, password)
+            except (OSError, ValueError) as e:
+                messagebox.showerror("Error", f"Export failed: {e}")
+                return
             messagebox.showinfo("Success", f"Key exported to:\n{dest_path}")
             self.status_bar.config(text=f"Exported {filename}")
 
@@ -452,16 +592,40 @@ class BigramCryptoGUI:
 
         if filepath:
             try:
-                key = self.key_manager.import_key(filepath)
-                new_path = self.key_manager.save_key(key)
+                password = None
+                try:
+                    key = self.key_manager.import_key(filepath)
+                except PasswordRequiredError:
+                    password = self.ask_password("Password for the key file being imported:")
+                    if password is None:
+                        return
+                    key = self.key_manager.import_key(filepath, password)
 
-                messagebox.showinfo("Success", f"Key imported successfully:\n{new_path}")
-                self.refresh_key_list()
-                self.refresh_encode_keys()
-                self.refresh_decode_keys()
-                self.refresh_viewer_keys()
+                if password is None:
+                    # An older unencrypted key file: protect the imported copy
+                    password = self.ask_password(
+                        "This key file has no password. Choose one to protect the imported copy:",
+                        confirm=True)
+                    if password is None:
+                        return
+                    key.pop('_stored_unencrypted', None)
+
+                warnings = self.key_manager.key_warnings(key)
+                if warnings:
+                    messagebox.showwarning("Key warning", "\n\n".join(warnings))
+                new_path = self.key_manager.save_key(key, password)
+
+                if self.key_manager.is_own_key(key):
+                    kind = "This is one of your own keys (recovered), for messages you send."
+                else:
+                    kind = (f"This is {key.get('sender') or 'your partner'}'s key, for reading the "
+                            "messages they send you. It cannot be used to write messages.")
+                messagebox.showinfo("Success", f"Key imported successfully:\n{new_path}\n\n{kind}")
+                self.refresh_all_keys()
 
                 self.status_bar.config(text=f"Imported key for {key['recipient']}")
+            except WrongPasswordError:
+                messagebox.showerror("Error", "Wrong password, or the key file has been changed")
             except Exception as e:
                 messagebox.showerror("Error", f"Import failed: {str(e)}")
 

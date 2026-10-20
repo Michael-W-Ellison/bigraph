@@ -131,7 +131,7 @@ def generate_symbol_reference_html():
 
     bigram_count = 0
     for idx, meaning in sorted(key['symbol_to_meaning'].items(), key=lambda x: x[0]):
-        if meaning in key['meaning_to_symbol'] and not meaning.startswith('NUM_') and not meaning.startswith('SPECIAL_') and not meaning.startswith('SPACE_') and meaning != 'MULDIV':
+        if meaning in key['meaning_to_symbol'] and not meaning.startswith('NUM_') and not meaning.startswith('SPECIAL_') and not meaning.startswith('SPACE_') and not meaning.startswith('WORD_') and meaning != 'MULDIV':
             if bigram_count < 50:
                 svg = key['symbols_svg'][idx]
                 html += f'            <div class="symbol-card">\n'

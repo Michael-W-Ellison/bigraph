@@ -174,31 +174,33 @@ def example_key_management():
     print("=" * 60)
 
     km = KeyManager(keys_directory="example_keys")
+    password = "example password"
 
-    # Generate multiple keys
-    key1 = km.generate_key("Alice", seed=111)
-    key2 = km.generate_key("Bob", seed=222)
-    key3 = km.generate_key("Charlie", seed=333)
+    # Generate multiple keys (without a seed, so they cannot be recreated)
+    key1 = km.generate_key("Alice")
+    key2 = km.generate_key("Bob")
+    key3 = km.generate_key("Charlie")
 
-    # Save keys
-    path1 = km.save_key(key1)
-    path2 = km.save_key(key2)
-    path3 = km.save_key(key3)
+    # Save keys, encrypted with a password
+    path1 = km.save_key(key1, password)
+    path2 = km.save_key(key2, password)
+    path3 = km.save_key(key3, password)
 
     print(f"Generated and saved 3 keys:")
     print(f"  {path1}")
     print(f"  {path2}")
     print(f"  {path3}")
 
-    # List keys
+    # List keys: encrypted keys only show their creation date until opened
     keys = km.list_keys()
     print(f"\nAvailable keys: {len(keys)}")
     for k in keys:
-        print(f"  {k['recipient']} - Created: {k['created'][:10]}")
+        print(f"  {k['filename']} - Created: {k['created'][:10]}")
 
-    # Load a key
-    loaded_key = km.load_key(path1)
+    # Load a key with its password
+    loaded_key = km.load_key(path1, password)
     print(f"\nLoaded key for: {loaded_key['recipient']}")
+    print(f"Warnings: {km.key_warnings(loaded_key) or 'none'}")
 
     # Clean up
     import shutil
@@ -228,7 +230,7 @@ def example_file_operations():
     encoder.save_encoded_message(encoded, message_file)
     print(f"Saved encoded message to: {message_file}")
 
-    # Load and decode
+    # Load and decode; the message's check code is verified when it is read
     loaded_encoded = encoder.load_encoded_message(message_file)
     decoded = decoder.decode(loaded_encoded)
 
