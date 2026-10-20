@@ -14,6 +14,7 @@ from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
                        LETTERS, SPECIAL_CHARS,
                        MATH_OPERATORS)
 from .key_manager import KeyManager
+from .security import format_message, parse_message
 
 
 class BigramEncoder:
@@ -401,28 +402,42 @@ class BigramEncoder:
         """
         return [self._get_space_marker(), self._get_space_marker()]
 
+    def format_message(self, encoded: List[int]) -> str:
+        """
+        Text of an encoded message, with a check code that detects changes
+
+        Args:
+            encoded: List of symbol indices
+
+        Returns:
+            Message text (see security.format_message)
+        """
+        return format_message(encoded, self.key)
+
     def save_encoded_message(self, encoded: List[int], filepath: str):
         """
-        Save encoded message to a file
+        Save encoded message to a file, with its check code
 
         Args:
             encoded: List of symbol indices
             filepath: Path to save the file
         """
         with open(filepath, 'w') as f:
-            # Write as comma-separated numbers
-            f.write(','.join(map(str, encoded)))
+            f.write(self.format_message(encoded))
 
     def load_encoded_message(self, filepath: str) -> List[int]:
         """
-        Load encoded message from a file
+        Load encoded message from a file and verify its check code
 
         Args:
             filepath: Path to the encoded message file
 
         Returns:
             List of symbol indices
+
+        Raises:
+            MessageIntegrityError: the message was changed
         """
         with open(filepath, 'r') as f:
-            content = f.read().strip()
-            return [int(x) for x in content.split(',') if x.strip()]
+            encoded, _ = parse_message(f.read(), self.key)
+        return encoded

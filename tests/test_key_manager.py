@@ -11,6 +11,8 @@ from bigraph.key_manager import KeyManager
 import tempfile
 import shutil
 
+PASSWORD = 'test password'
+
 
 @pytest.fixture
 def temp_keys_dir():
@@ -41,11 +43,11 @@ def test_save_load_key(temp_keys_dir):
     key = km.generate_key('TestUser', seed=42)
 
     # Save key
-    filepath = km.save_key(key)
+    filepath = km.save_key(key, PASSWORD)
     assert os.path.exists(filepath)
 
     # Load key
-    loaded_key = km.load_key(filepath)
+    loaded_key = km.load_key(filepath, PASSWORD)
     assert loaded_key['recipient'] == key['recipient']
     assert loaded_key['seed'] == key['seed']
 
@@ -58,16 +60,16 @@ def test_list_keys(temp_keys_dir):
     key1 = km.generate_key('User1', seed=1)
     key2 = km.generate_key('User2', seed=2)
 
-    km.save_key(key1)
-    km.save_key(key2)
+    km.save_key(key1, PASSWORD)
+    km.save_key(key2, PASSWORD)
 
-    # List keys
+    # List keys: encrypted keys do not reveal their recipient until opened
     keys = km.list_keys()
-    assert len(keys) >= 2
+    assert len(keys) == 2
+    assert all(k['encrypted'] and k['recipient'] is None for k in keys)
 
-    recipients = [k['recipient'] for k in keys]
-    assert 'User1' in recipients
-    assert 'User2' in recipients
+    recipients = {km.load_key(k['filepath'], PASSWORD)['recipient'] for k in keys}
+    assert recipients == {'User1', 'User2'}
 
 
 def test_reproducible_keys():
@@ -135,9 +137,9 @@ def test_load_key_redraws_symbols(temp_keys_dir):
     expected = key['symbols_svg']
 
     key['symbols_svg'] = ['<svg>old</svg>'] * len(expected)
-    filepath = km.save_key(key)
+    filepath = km.save_key(key, PASSWORD)
 
-    loaded = km.load_key(filepath)
+    loaded = km.load_key(filepath, PASSWORD)
     assert loaded['symbols_svg'] == expected
 
 
@@ -171,9 +173,9 @@ def test_unseeded_key_redraws_same_symbols_on_load(temp_keys_dir):
     """Test that a secure key's symbols are redrawn identically from its symbol seed"""
     km = KeyManager(keys_directory=temp_keys_dir)
     key = km.generate_key('Test')
-    filepath = km.save_key(key)
+    filepath = km.save_key(key, PASSWORD)
 
-    loaded = km.load_key(filepath)
+    loaded = km.load_key(filepath, PASSWORD)
 
     assert loaded['symbols_svg'] == key['symbols_svg']
 
@@ -185,9 +187,9 @@ def test_load_key_without_symbol_seed(temp_keys_dir):
     expected = key['symbols_svg']
     del key['symbol_seed']
     key['symbols_svg'] = ['<svg>old</svg>'] * len(expected)
-    filepath = km.save_key(key)
+    filepath = km.save_key(key, PASSWORD)
 
-    loaded = km.load_key(filepath)
+    loaded = km.load_key(filepath, PASSWORD)
 
     assert loaded['symbols_svg'] == expected
 

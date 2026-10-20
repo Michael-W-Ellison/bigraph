@@ -54,9 +54,11 @@ from bigraph.key_manager import KeyManager
 from bigraph.encoder import BigramEncoder
 from bigraph.decoder import BigramDecoder
 
-# Generate key
+# Generate a key and save it, encrypted with a password
 km = KeyManager()
 key = km.generate_key("Alice")
+path = km.save_key(key, "a long password")
+key = km.load_key(path, "a long password")
 
 # Encode
 encoder = BigramEncoder(key)
@@ -90,9 +92,11 @@ Words with odd numbers of letters use special partial markers.
 
 ## Tips
 
-- **Keep keys safe**: The key is required to decode messages
+- **Keep keys safe**: The key is required to decode messages. Key files are encrypted with a password and readable only by your user account
 - **Unique keys**: Generate a different key for each person
-- **Share keys securely**: Send keys through a different channel than messages
+- **Share keys securely**: Export a copy with its own password, and give the file and the password through different channels (for example the password in person)
+- **Change keys regularly**: An attacker who collects enough text written with one key, especially with guessable openings or signatures, can read much of it
+- **Check messages**: Saved and copied messages include a check code; decoding reports a message that has been changed
 - **Backup keys**: Export keys to backup files
 - **Don't use seeds for real keys**: A seed makes a key reproducible by anyone who knows or guesses it; use seeds only for testing
 

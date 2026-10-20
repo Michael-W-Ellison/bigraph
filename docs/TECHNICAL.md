@@ -43,32 +43,66 @@ Symbols are generated as SVG graphics with the following structure:
 
 **File**: `src/bigraph/key_manager.py`
 
-**Key Structure**:
+**Key Structure** (in memory):
 ```json
 {
   "recipient": "Alice",
   "created": "2024-01-01T12:00:00",
   "seed": null,
   "symbol_seed": 283749027349872340987234098723409872341,
-  "symbol_to_meaning": {
-    "0": "AA",
-    "1": "AB",
-    "2": "AC",
-    ...
-  },
-  "meaning_to_symbol": {
-    "AA": 0,
-    "AB": 1,
-    "AC": 2,
-    ...
-  },
-  "symbols_svg": [
-    "<svg>...</svg>",
-    ...
-  ],
-  "version": "1.0"
+  "mac_key": "5f2c...",
+  "symbol_to_meaning": {"0": "AA", "1": "WORD_THE_12", "2": "ALT_IN_3", ...},
+  "meaning_to_symbol": {"AA": 0, ...},
+  "symbols_svg": ["<svg>...</svg>", ...],
+  "version": "2.0"
 }
 ```
+
+`meaning_to_symbol` and `symbols_svg` are rebuilt when a key is loaded, so
+they are not stored. `mac_key` is a 256-bit secret for message check codes.
+
+**Key Files**:
+
+Key files are encrypted with a password (`src/bigraph/security.py`):
+
+- AES-256-GCM, with the encryption key derived from the password by scrypt
+  (N=2^15, r=8, p=1, random 16-byte salt). GCM also detects a wrong password
+  or any change to the file, including its readable header.
+- Only the format, version, creation date and encryption settings are
+  readable without the password, so keys can be listed. The recipient and
+  the symbol table are encrypted.
+- Passwords must be at least 8 characters.
+- Files get random names (`key_<16 hex digits>.key`), so the name reveals
+  nothing about the recipient.
+- The default folder is per-user: `~/.local/share/bigraph/keys` on Linux (or
+  `$XDG_DATA_HOME/bigraph/keys`), `~/Library/Application Support/Bigraph/keys`
+  on macOS, `%APPDATA%\Bigraph\keys` on Windows. It is created when the first
+  key is saved, readable only by the current user (mode 700), and key files
+  and exported copies are readable only by their owner (mode 600) on Linux and
+  macOS.
+- Older unencrypted key files still load; protect them by importing them
+  again.
+
+**Key Warnings**:
+
+`KeyManager.key_warnings(key)` reports keys made before secure key
+generation (from a 32-bit seed), keys made from a seed, keys stored without
+a password, and keys without a check secret. The GUI shows these and asks
+before using such a key. The GUI no longer offers seeded keys.
+
+**Message Check Codes**:
+
+Saved and copied messages use this format:
+```
+BIGRAPH-MESSAGE 1
+12,-40,977,...
+CHECK <HMAC-SHA256 of the first two lines, using the key's mac_key>
+```
+Reading a message verifies the check code and raises `MessageIntegrityError`
+if it does not match, or if it is missing from a message made with a key
+that has a check secret. A bare list of numbers (the older format) still
+reads, reported as unverified. A message written out by hand as symbols has
+no check code.
 
 **Key Components**:
 - **Bigrams**: AA-ZZ (676 total)
@@ -321,10 +355,14 @@ Create new encoder class inheriting from `BigramEncoder` and override:
 ### KeyManager
 
 ```python
-generate_key(recipient: str, seed: int = None) -> Dict
-save_key(key: Dict) -> str
-load_key(filepath: str) -> Dict
+generate_key(recipient: str, seed: int = None, word_symbol_budget: int = 2000,
+             bigram_symbol_budget: int = 1500) -> Dict
+save_key(key: Dict, password: str) -> str
+load_key(filepath: str, password: str = None) -> Dict
 list_keys() -> List[Dict]
+export_key(key: Dict, filepath: str, password: str)
+import_key(filepath: str, password: str = None) -> Dict
+key_warnings(key: Dict) -> List[str]
 get_symbol_for_bigram(key: Dict, bigram: str) -> Optional[int]
 get_symbol_for_number(key: Dict, number: int) -> Optional[int]
 ```
@@ -335,7 +373,9 @@ get_symbol_for_number(key: Dict, number: int) -> Optional[int]
 __init__(key: Dict)
 encode(plaintext: str) -> List[int]
 encode_math_expression(expression: str) -> List[int]
+format_message(encoded: List[int]) -> str
 save_encoded_message(encoded: List[int], filepath: str)
+load_encoded_message(filepath: str) -> List[int]
 ```
 
 ### BigramDecoder
@@ -344,6 +384,7 @@ save_encoded_message(encoded: List[int], filepath: str)
 __init__(key: Dict)
 decode(encoded: List[int]) -> str
 decode_with_symbols(encoded: List[int]) -> List[Dict]
+read_message(text: str) -> Tuple[List[int], bool]
 load_and_decode(filepath: str) -> str
 ```
 

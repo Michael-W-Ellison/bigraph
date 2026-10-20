@@ -3,6 +3,9 @@ Key Management for Bigraph Cryptography System
 
 Handles generation, storage, and management of encryption keys.
 Each key maps symbols to bigrams/characters randomly.
+
+Key files are encrypted with a password and stored so only the current user
+can read them (see security.py).
 """
 
 import json
@@ -16,20 +19,26 @@ from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
                        word_symbol_counts, BIGRAM_SYMBOL_BUDGET,
                        bigram_symbol_counts)
 from .symbols import SymbolGenerator
+from .security import (default_keys_directory, ensure_private_directory, write_private_file,
+                       encrypt_key_file, decrypt_key_file, read_key_file_header, KeyFileError)
+
+# Key data that is rebuilt when a key is loaded, so it is not stored in key files
+DERIVED_FIELDS = ('meaning_to_symbol', 'symbols_svg')
 
 
 class KeyManager:
     """Manages encryption keys for the bigraph system"""
 
-    def __init__(self, keys_directory: str = "keys"):
+    def __init__(self, keys_directory: Optional[str] = None):
         """
         Initialize the key manager
 
         Args:
-            keys_directory: Directory to store key files
+            keys_directory: Directory to store key files (default: a per-user
+                data folder). It is created, readable only by the current
+                user, when the first key is saved.
         """
-        self.keys_directory = keys_directory
-        os.makedirs(keys_directory, exist_ok=True)
+        self.keys_directory = keys_directory or default_keys_directory()
 
     def generate_key(self, recipient_name: str, seed: int = None,
                      word_symbol_budget: int = WORD_SYMBOL_BUDGET,
@@ -59,9 +68,11 @@ class KeyManager:
         if seed is None:
             rng = secrets.SystemRandom()
             symbol_seed = secrets.randbits(128)
+            mac_key = secrets.token_hex(32)
         else:
             rng = random.Random(seed)
             symbol_seed = seed
+            mac_key = '%064x' % rng.getrandbits(256)
 
         # Create list of all items that need symbols
         items = []
@@ -118,55 +129,74 @@ class KeyManager:
             'symbol_to_meaning': symbol_to_meaning,
             'meaning_to_symbol': meaning_to_symbol,
             'symbols_svg': symbols_svg,
-            'version': '1.0'
+            # Secret for message check codes
+            'mac_key': mac_key,
+            'version': '2.0'
         }
 
         return key
 
-    def save_key(self, key: Dict) -> str:
+    def _key_data(self, key: Dict) -> Dict:
+        """Key data to store: without rebuilt fields or load-time notes"""
+        return {k: v for k, v in key.items() if k not in DERIVED_FIELDS and not k.startswith('_')}
+
+    def save_key(self, key: Dict, password: str) -> str:
         """
-        Save a key to a JSON file
+        Save a key to an encrypted file in the keys directory
+
+        The file gets a random name, so it does not reveal the recipient.
 
         Args:
             key: Key dictionary to save
+            password: Password protecting the file (at least 8 characters)
 
         Returns:
             Path to the saved key file
         """
-        recipient = key['recipient'].replace(' ', '_').replace('/', '_')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{recipient}_{timestamp}.key"
-        filepath = os.path.join(self.keys_directory, filename)
-
-        with open(filepath, 'w') as f:
-            json.dump(key, f, indent=2)
-
+        ensure_private_directory(self.keys_directory)
+        while True:
+            filepath = os.path.join(self.keys_directory, f"key_{secrets.token_hex(8)}.key")
+            if not os.path.exists(filepath):
+                break
+        self.export_key(key, filepath, password)
         return filepath
 
-    def load_key(self, filepath: str) -> Dict:
+    def load_key(self, filepath: str, password: Optional[str] = None) -> Dict:
         """
-        Load a key from a JSON file
+        Load a key from a file
+
+        Reads encrypted key files, and older unencrypted ones (marked with
+        '_stored_unencrypted', which key_warnings reports).
 
         Args:
             filepath: Path to the key file
+            password: Password for an encrypted key file
 
         Returns:
             Key dictionary
+
+        Raises:
+            PasswordRequiredError: the file is encrypted and no password was given
+            WrongPasswordError: the password is wrong or the file was changed
         """
         with open(filepath, 'r') as f:
-            key = json.load(f)
+            text = f.read()
+
+        if read_key_file_header(text) is not None:
+            key = decrypt_key_file(text, password)
+        else:
+            key = json.loads(text)
+            key['_stored_unencrypted'] = True
 
         # Convert string keys back to integers for symbol_to_meaning
-        if 'symbol_to_meaning' in key:
-            key['symbol_to_meaning'] = {
-                int(k): v for k, v in key['symbol_to_meaning'].items()
-            }
+        key['symbol_to_meaning'] = {int(k): v for k, v in key['symbol_to_meaning'].items()}
+        key['meaning_to_symbol'] = {v: k for k, v in key['symbol_to_meaning'].items()}
 
         # Redraw the symbols with the current symbol generator, so a key saved
         # by an older version does not use that version's symbols. Keys saved
         # before symbol_seed was added use their seed.
         symbol_seed = key.get('symbol_seed', key.get('seed'))
-        if symbol_seed is not None and 'symbol_to_meaning' in key:
+        if symbol_seed is not None:
             symbol_gen = SymbolGenerator(seed=symbol_seed)
             key['symbols_svg'] = symbol_gen.generate_all_symbols(len(key['symbol_to_meaning']))
 
@@ -174,52 +204,88 @@ class KeyManager:
 
     def list_keys(self) -> List[Dict]:
         """
-        List all available keys
+        List all available keys without opening them
+
+        Encrypted key files only reveal their creation date, so 'recipient' is
+        None for them until the key is loaded with its password.
 
         Returns:
             List of key metadata dictionaries
         """
         keys = []
+        if not os.path.isdir(self.keys_directory):
+            return keys
 
-        for filename in os.listdir(self.keys_directory):
-            if filename.endswith('.key'):
-                filepath = os.path.join(self.keys_directory, filename)
-                try:
-                    key = self.load_key(filepath)
-                    keys.append({
-                        'filename': filename,
-                        'filepath': filepath,
-                        'recipient': key.get('recipient', 'Unknown'),
-                        'created': key.get('created', 'Unknown'),
-                        'version': key.get('version', '1.0')
-                    })
-                except Exception as e:
-                    print(f"Error loading key {filename}: {e}")
+        for filename in sorted(os.listdir(self.keys_directory)):
+            if not filename.endswith('.key'):
+                continue
+            filepath = os.path.join(self.keys_directory, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    text = f.read()
+                header = read_key_file_header(text)
+                if header is not None:
+                    info = {'recipient': None, 'created': header.get('created', 'Unknown'),
+                            'encrypted': True}
+                else:
+                    data = json.loads(text)
+                    info = {'recipient': data.get('recipient', 'Unknown'),
+                            'created': data.get('created', 'Unknown'), 'encrypted': False}
+            except (OSError, ValueError, KeyFileError) as e:
+                print(f"Error reading key {filename}: {e}")
+                continue
+            keys.append({'filename': filename, 'filepath': filepath, **info})
 
         return keys
 
-    def export_key(self, key: Dict, filepath: str):
+    def export_key(self, key: Dict, filepath: str, password: str):
         """
-        Export a key to a specific file location
+        Write a key to an encrypted file at a chosen location
 
         Args:
             key: Key dictionary to export
             filepath: Destination file path
+            password: Password protecting the file (at least 8 characters)
         """
-        with open(filepath, 'w') as f:
-            json.dump(key, f, indent=2)
+        created = str(key.get('created', ''))[:10]
+        text = encrypt_key_file(self._key_data(key), password, created)
+        write_private_file(filepath, text)
 
-    def import_key(self, filepath: str) -> Dict:
+    def import_key(self, filepath: str, password: Optional[str] = None) -> Dict:
         """
         Import a key from a file
 
         Args:
             filepath: Path to the key file to import
+            password: Password for an encrypted key file
 
         Returns:
             Imported key dictionary
         """
-        return self.load_key(filepath)
+        return self.load_key(filepath, password)
+
+    @staticmethod
+    def key_warnings(key: Dict) -> List[str]:
+        """
+        Reasons a key is weak or stored unsafely
+
+        Returns:
+            List of warnings (empty if none)
+        """
+        warnings = []
+        if 'symbol_seed' not in key:
+            warnings.append("This key was made before secure key generation, from a 32-bit seed. "
+                            "Someone with this program can find it by trying every seed. "
+                            "Replace it with a new key.")
+        elif key.get('seed') is not None:
+            warnings.append("This key was made from a seed. Anyone who knows or guesses the seed "
+                            "can recreate it. Use keys made without a seed for real messages.")
+        if key.get('_stored_unencrypted'):
+            warnings.append("This key file is not protected by a password. Anyone who can read the "
+                            "file can read your messages. Import it again to protect it.")
+        if not key.get('mac_key'):
+            warnings.append("This key has no check secret, so changed messages cannot be detected.")
+        return warnings
 
     def get_symbol_for_bigram(self, key: Dict, bigram: str) -> Optional[int]:
         """

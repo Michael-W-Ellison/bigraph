@@ -7,6 +7,7 @@ Converts encoded number lists back to plaintext using the encryption key.
 from typing import List, Dict
 from .constants import SPACE_MARKERS
 from .key_manager import KeyManager
+from .security import parse_message
 
 
 class BigramDecoder:
@@ -222,18 +223,35 @@ class BigramDecoder:
 
         return result
 
+    def read_message(self, text: str):
+        """
+        Read encoded message text and verify its check code
+
+        Args:
+            text: Message text, in the current format or as a bare number list
+
+        Returns:
+            (list of symbol indices, True if the check code was verified)
+
+        Raises:
+            MessageIntegrityError: the message was changed
+        """
+        return parse_message(text, self.key)
+
     def load_and_decode(self, filepath: str) -> str:
         """
-        Load an encoded message file and decode it
+        Load an encoded message file, verify its check code, and decode it
 
         Args:
             filepath: Path to the encoded message file
 
         Returns:
             Decoded plaintext
+
+        Raises:
+            MessageIntegrityError: the message was changed
         """
         with open(filepath, 'r') as f:
-            content = f.read().strip()
-            encoded = [int(x) for x in content.split(',') if x.strip()]
+            encoded, _ = self.read_message(f.read())
 
         return self.decode(encoded)
