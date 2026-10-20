@@ -133,3 +133,44 @@ Each trial also records the score of the real key under the attacker's model.
 
 So these results show how this attack fares, not a limit on all attacks.
 Text is counted per key: several messages written with the same key add up.
+
+---
+
+# Extra Bigram Symbols
+
+The default common word budget was raised to 2,000. Then the 200 most frequent
+bigrams in spelled words were given 1,500 extra symbols in proportion to their
+use (IN has 44 symbols, ER 33, TH 24), chosen at random each time a bigram is
+written. The attack was updated to know how many symbols each bigram has.
+Raw results: `results_bigram_symbols.json` and
+`results_bigram_symbols_long_search.json`.
+
+## Results
+
+Letters correct / whole words correct, average of 2 trials. The left column
+is from `results_ws_2000.json`, which used the same passages.
+
+| Words | 2,000 word symbols | Plus 1,500 extra bigram symbols |
+|---:|---|---|
+| 1,600 | 77% / 54% | 14% / 5% |
+| 3,200 | 78% / 57% | 8% / 3% |
+| 6,400 | not run | 9% / 3% |
+
+With 4 times the search (16,000,000 steps, about 65 minutes per trial), the
+3,200-word trials recovered 8% and 8% of letters, the same as with
+4,000,000 steps. Space markers were found in every trial.
+
+## What stopped the attack
+
+In every trial from 1,600 words up, the real key scored far higher under the
+attacker's model than the attack's result (for example -23,921 against
+-36,992 at 3,200 words). The model could recognise the right answer, but the
+search could not find it, and four times more search did not help.
+
+This means this attack fails, not that every attack would. With many symbols
+per bigram, the search has to work out which symbols mean the same thing
+before word statistics become useful, and simulated annealing did not manage
+that. A different method, for example one that first groups symbols by the
+contexts they appear in, might do better. So these numbers show the extra
+bigram symbols defeat this attack up to at least 6,400 words, not that the
+cipher is secure.
