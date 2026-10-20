@@ -52,7 +52,8 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from bigraph.constants import BIGRAMS, LETTERS, COMMON_WORDS, word_symbol_counts  # noqa: E402
+from bigraph.constants import (BIGRAMS, LETTERS, COMMON_WORDS, word_symbol_counts,  # noqa: E402
+                               bigram_symbol_counts)
 from bigraph.encoder import BigramEncoder  # noqa: E402
 from bigraph.key_manager import KeyManager  # noqa: E402
 
@@ -206,7 +207,7 @@ def aligned_bigram_counts(words):
 # What the attacker sees
 # ---------------------------------------------------------------------------
 
-def encode_for_attacker(text, rng, budget):
+def encode_for_attacker(text, rng, budget, bigram_budget):
     """
     Encode text with a new secure key and return the attacker's view
 
@@ -214,7 +215,7 @@ def encode_for_attacker(text, rng, budget):
     truth maps each label to its real meaning (used only for scoring).
     """
     km = KeyManager(keys_directory=os.path.join(DATA_DIR, 'keys'))
-    key = km.generate_key('attack', word_symbol_budget=budget)
+    key = km.generate_key('attack', word_symbol_budget=budget, bigram_symbol_budget=bigram_budget)
     encoded = BigramEncoder(key).encode(text)
 
     # Give each drawing a random label, as an attacker transcribing them would
@@ -303,16 +304,20 @@ def plain_shape(word):
 class Solver:
     """Simulated annealing over the assignment of symbols to bigrams and words"""
 
-    def __init__(self, items, model, train_counts, budget, rng):
+    def __init__(self, items, model, train_counts, budget, bigram_budget, rng):
         self.model = model
         self.rng = rng
         self.t_start, self.t_end = 30.0, 0.5
 
-        # Common words and how many symbols each has (public knowledge)
-        self.capacity = {WORD_PREFIX + w: c for w, c in word_symbol_counts(budget).items()}
-        self.common = {w[1:] for w in self.capacity}
+        # Common words, and how many symbols each word and bigram has (public
+        # knowledge)
+        public_word_counts = word_symbol_counts(budget)
+        extra = bigram_symbol_counts(bigram_budget)
+        self.capacity = {WORD_PREFIX + w: c for w, c in public_word_counts.items()}
+        self.capacity.update({b: 1 + extra.get(b, 0) for b in BIGRAMS})
+        self.common = set(public_word_counts)
         common_freq = dict(COMMON_WORDS)
-        self.word_values = list(self.capacity)
+        self.word_values = [WORD_PREFIX + w for w in public_word_counts]
         self.word_value_weights = [common_freq[w[1:]] / self.capacity[w] for w in self.word_values]
 
         # Sequence of words, as pairs of (previous word or None, word)
@@ -360,24 +365,22 @@ class Solver:
         spelled = [w for w in train_counts.elements() if w not in self.common]
         bigram_freq = aligned_bigram_counts(spelled)
         self.bigram_weights = [bigram_freq.get(b, 0) + 1 for b in BIGRAMS]
-        self.ranked_bigrams = [b for b, _ in bigram_freq.most_common()]
-        self.ranked_bigrams += [b for b in BIGRAMS if b not in bigram_freq]
+        # Each of a bigram's symbols is expected to be used freq / capacity times
+        self.ranked_slots = sorted(
+            ((b, i) for b in BIGRAMS for i in range(self.capacity[b])),
+            key=lambda slot: -bigram_freq.get(slot[0], 0) / self.capacity[slot[0]])
 
     # -- state ------------------------------------------------------------
 
     def add(self, s, v):
         self.value[s] = v
-        if v[0] == WORD_PREFIX:
-            self.holders[v].add(s)
-        else:
-            self.owner[v] = s
+        self.holders[v].add(s)
 
     def remove(self, s):
-        v = self.value.pop(s)
-        if v[0] == WORD_PREFIX:
-            self.holders[v].discard(s)
-        elif self.owner.get(v) == s:
-            del self.owner[v]
+        self.holders[self.value.pop(s)].discard(s)
+
+    def full(self, v):
+        return len(self.holders[v]) >= self.capacity[v]
 
     def apply(self, move):
         old = {s: self.value[s] for s in move}
@@ -388,25 +391,13 @@ class Solver:
         return old
 
     def valid(self, move):
-        used = set()
-        for s, v in move.items():
-            if v[0] == WORD_PREFIX:
-                if s not in self.standalone:
-                    return False
-            else:
-                if v in used:
-                    return False
-                used.add(v)
-                o = self.owner.get(v)
-                if o is not None and o not in move:
-                    return False
+        if any(v[0] == WORD_PREFIX and s not in self.standalone for s, v in move.items()):
+            return False
         change = Counter()
         for s, v in move.items():
-            if self.value[s][0] == WORD_PREFIX:
-                change[self.value[s]] -= 1
-            if v[0] == WORD_PREFIX:
-                change[v] += 1
-        return all(len(self.holders[w]) + d <= self.capacity[w] for w, d in change.items() if d > 0)
+            change[self.value[s]] -= 1
+            change[v] += 1
+        return all(len(self.holders[v]) + d <= self.capacity[v] for v, d in change.items() if d > 0)
 
     def decode(self, word):
         if len(word) == 1 and self.value[word[0][0]][0] == WORD_PREFIX:
@@ -414,7 +405,7 @@ class Solver:
         return ''.join(self.value[s][0] if partial else self.value[s] for s, partial in word)
 
     def initial_assignment(self):
-        self.value, self.owner, self.holders = {}, {}, defaultdict(set)
+        self.value, self.holders = {}, defaultdict(set)
 
         # Spread possible word symbols over the common words
         slots = [w for w, c in self.capacity.items() for _ in range(c)]
@@ -435,15 +426,17 @@ class Solver:
                 targets = self.word_targets(w, word)
                 if targets is None:
                     continue
-                if all(self.value.get(s, b) == b and self.owner.get(b, s) == s
-                       for s, b in targets.items()):
+                need = Counter(b for s, b in targets.items() if s not in self.value)
+                if (all(self.value.get(s, b) == b for s, b in targets.items()) and
+                        all(len(self.holders[b]) + n <= self.capacity[b] for b, n in need.items())):
                     for s, b in targets.items():
                         if s not in self.value:
                             self.add(s, b)
                     used[shape] += 1
                     break
 
-        free = [b for b in self.ranked_bigrams if b not in self.owner]
+        taken = Counter({v: len(h) for v, h in self.holders.items()})
+        free = [b for b, i in self.ranked_slots if i >= taken[b]]
         for s in self.symbols:
             if s not in self.value:
                 self.add(s, free.pop(0))
@@ -458,25 +451,40 @@ class Solver:
                 if current and current[0] == letter:
                     b = current
                 else:
-                    options = [letter + x for x in LETTERS if letter + x not in self.owner]
+                    options = [letter + x for x in LETTERS if not self.full(letter + x)]
                     b = self.rng.choice(options) if options else letter + self.rng.choice(LETTERS)
             else:
                 b = plain_word[2 * i:2 * i + 2]
             if targets.get(s, b) != b:
                 return None
             targets[s] = b
-        if len(set(targets.values())) != len(targets):
-            return None
         return targets
 
     def complete_move(self, targets):
-        """Add swaps so that symbols losing their bigram take the old values"""
-        move = dict(targets)
-        for s, b in targets.items():
-            t = self.owner.get(b)
-            if t is not None and t != s and t not in move:
-                move[t] = self.value[s]
-        return move if self.valid(move) else None
+        """
+        Turn {symbol: new value} into a valid move
+
+        When a value already has its full number of symbols, one of them is
+        swapped out and takes the old value.
+        """
+        move = {}
+        change = Counter()
+        for s, v in targets.items():
+            old = self.value[s]
+            if old == v:
+                continue
+            move[s] = v
+            change[v] += 1
+            change[old] -= 1
+            if len(self.holders[v]) + change[v] > self.capacity[v]:
+                candidates = sorted(t for t in self.holders[v] if t not in move and t not in targets)
+                if not candidates:
+                    return None
+                t = self.rng.choice(candidates)
+                move[t] = old
+                change[old] += 1
+                change[v] -= 1
+        return move if move and self.valid(move) else None
 
     # -- moves ------------------------------------------------------------
 
@@ -484,21 +492,11 @@ class Solver:
         s = self.rng.choices(self.symbols, self.symbol_weights)[0]
         if s in self.standalone and self.rng.random() < 0.5:
             v = self.rng.choices(self.word_values, self.word_value_weights)[0]
-            if v == self.value[s]:
-                return None
-            if len(self.holders[v]) >= self.capacity[v]:
-                t = self.rng.choice(sorted(self.holders[v]))
-                move = {s: v, t: self.value[s]}
-                return move if self.valid(move) else None
-            move = {s: v}
-            return move if self.valid(move) else None
-        if self.rng.random() < 0.7:
-            b = self.rng.choices(BIGRAMS, self.bigram_weights)[0]
+        elif self.rng.random() < 0.7:
+            v = self.rng.choices(BIGRAMS, self.bigram_weights)[0]
         else:
-            b = self.rng.choice(BIGRAMS)
-        if b == self.value[s]:
-            return None
-        return self.complete_move({s: b})
+            v = self.rng.choice(BIGRAMS)
+        return self.complete_move({s: v})
 
     def word_move(self):
         w = self.rng.choices(self.distinct, self.word_weights)[0]
@@ -559,7 +557,7 @@ class Solver:
         return best_score, best
 
 
-def attack(items, model, train_counts, budget, rng, iterations, restarts):
+def attack(items, model, train_counts, budget, bigram_budget, rng, iterations, restarts):
     """
     Run the search several times
 
@@ -567,18 +565,26 @@ def attack(items, model, train_counts, budget, rng, iterations, restarts):
     """
     best_score, best = None, None
     for _ in range(restarts):
-        solver = Solver(items, model, train_counts, budget, random.Random(rng.random()))
+        solver = Solver(items, model, train_counts, budget, bigram_budget, random.Random(rng.random()))
         score, _ = solver.run(iterations)
         if best_score is None or score > best_score:
             best_score, best = score, [solver.decode(w) for w in items if w is not None]
     return best_score, best
 
 
-def true_score(items, truth, model, train_counts, budget):
+def true_value(meaning):
+    """The attacker's value for a real meaning"""
+    if meaning.startswith('WORD_'):
+        return WORD_PREFIX + meaning.split('_')[1]
+    if meaning.startswith('ALT_'):
+        return meaning[4:6]
+    return meaning
+
+
+def true_score(items, truth, model, train_counts, budget, bigram_budget):
     """Score of the real key under the attacker's model (for diagnosis only)"""
-    solver = Solver(items, model, train_counts, budget, random.Random(0))
-    solver.value = {s: (WORD_PREFIX + m.split('_')[1] if m.startswith('WORD_') else m)
-                    for s, m in truth.items()}
+    solver = Solver(items, model, train_counts, budget, bigram_budget, random.Random(0))
+    solver.value = {s: true_value(m) for s, m in truth.items()}
     decoded = {w: solver.decode(w) for w in solver.distinct}
     return sum(solver.pair_score(p, decoded) * c for p, c in solver.pair_counts.items())
 
@@ -587,8 +593,8 @@ def true_score(items, truth, model, train_counts, budget):
 # Measurement
 # ---------------------------------------------------------------------------
 
-def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
-    tokens, truth = encode_for_attacker(text, rng, budget)
+def run_trial(text, model, train_counts, budget, bigram_budget, rng, iterations, restarts):
+    tokens, truth = encode_for_attacker(text, rng, budget, bigram_budget)
     real_markers = {s for s, m in truth.items() if m.startswith('SPACE_')}
 
     markers = find_space_markers(tokens)
@@ -598,7 +604,8 @@ def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
     plain_words = words_of(text)
 
     start = time.time()
-    found_score, decoded = attack(items, model, train_counts, budget, rng, iterations, restarts)
+    found_score, decoded = attack(items, model, train_counts, budget, bigram_budget, rng,
+                                  iterations, restarts)
     elapsed = time.time() - start
 
     letters = sum(len(w) for w in plain_words)
@@ -615,6 +622,7 @@ def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
 
     return {
         'budget': budget,
+        'bigram_budget': bigram_budget,
         'words': len(plain_words),
         'letters': letters,
         'symbols': len(tokens),
@@ -625,7 +633,8 @@ def run_trial(text, model, train_counts, budget, rng, iterations, restarts):
         # If the real key scores higher than the result, the search stopped
         # short; if not, the model cannot tell the real text apart
         'found_score': round(found_score),
-        'true_score': round(true_score(items, truth, model, train_counts, budget)) if markers_found else None,
+        'true_score': (round(true_score(items, truth, model, train_counts, budget, bigram_budget))
+                       if markers_found else None),
         'sample_plain': ' '.join(plain_words[:40]),
         'sample_decoded': ' '.join(decoded[:40]),
     }
@@ -645,8 +654,8 @@ def init_worker():
 
 
 def worker_trial(task):
-    budget, count, trial, text, seed, iterations, restarts = task
-    result = run_trial(text, WORKER['model'], WORKER['train_counts'], budget,
+    budget, bigram_budget, count, trial, text, seed, iterations, restarts = task
+    result = run_trial(text, WORKER['model'], WORKER['train_counts'], budget, bigram_budget,
                        random.Random(seed), iterations, restarts)
     result['nominal_words'] = count
     result['trial'] = trial
@@ -658,8 +667,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     parser.add_argument('--words', type=int, nargs='+',
                         default=[200, 400, 800, 1600, 3200, 6400])
-    parser.add_argument('--budgets', type=int, nargs='+', default=[0, 510],
+    parser.add_argument('--budgets', type=int, nargs='+', default=[2000],
                         help='word symbol budgets to compare (0 for no word symbols)')
+    parser.add_argument('--bigram-budgets', type=int, nargs='+', default=[0, 1500],
+                        help='extra bigram symbol budgets to compare (0 for none)')
     parser.add_argument('--keys', type=int, default=3, help='trials (keys) per length')
     parser.add_argument('--seed', type=int, default=1, help='seed for choosing passages')
     parser.add_argument('--restarts', type=int, default=1, help='searches per trial')
@@ -674,14 +685,16 @@ def main():
 
     tasks = []
     for budget in args.budgets:
-        # The same passages for every budget, so the budgets are comparable
-        rng = random.Random(args.seed)
-        for count in args.words:
-            iterations = min(args.max_iterations, max(args.min_iterations, 2000 * count))
-            for trial in range(args.keys):
-                start = rng.randrange(len(test_tokens) // 10, len(test_tokens) - count - 1)
-                text = ' '.join(test_tokens[start:start + count])
-                tasks.append((budget, count, trial, text, rng.random(), iterations, args.restarts))
+        for bigram_budget in args.bigram_budgets:
+            # The same passages for every budget, so the budgets are comparable
+            rng = random.Random(args.seed)
+            for count in args.words:
+                iterations = min(args.max_iterations, max(args.min_iterations, 2000 * count))
+                for trial in range(args.keys):
+                    start = rng.randrange(len(test_tokens) // 10, len(test_tokens) - count - 1)
+                    text = ' '.join(test_tokens[start:start + count])
+                    tasks.append((budget, bigram_budget, count, trial, text, rng.random(),
+                                  iterations, args.restarts))
 
     # Longest tasks first so the pool finishes sooner
     tasks.sort(key=lambda t: -t[1])
@@ -690,11 +703,12 @@ def main():
     with multiprocessing.Pool(args.jobs, initializer=init_worker) as pool:
         for result in pool.imap_unordered(worker_trial, tasks):
             results.append(result)
-            print(f"budget {result['budget']:5d}  {result['nominal_words']:5d} words  "
+            print(f"words {result['budget']:5d}  bigrams {result['bigram_budget']:5d}  "
+                  f"{result['nominal_words']:5d} words  "
                   f"trial {result['trial']}  markers={'yes' if result['markers_found'] else 'no '}  "
                   f"letters {result['letter_accuracy']:.0%}  words {result['word_accuracy']:.0%}  "
                   f"{result['seconds']}s", flush=True)
-            results.sort(key=lambda r: (r['budget'], r['nominal_words'], r['trial']))
+            results.sort(key=lambda r: (r['budget'], r['bigram_budget'], r['nominal_words'], r['trial']))
             with open(args.out, 'w') as f:
                 json.dump(results, f, indent=2)
 

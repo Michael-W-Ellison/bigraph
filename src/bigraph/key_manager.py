@@ -13,7 +13,8 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
                        DIGITS, MULTIPLY_DIVIDE_MARKER, WORD_SYMBOL_BUDGET,
-                       word_symbol_counts)
+                       word_symbol_counts, BIGRAM_SYMBOL_BUDGET,
+                       bigram_symbol_counts)
 from .symbols import SymbolGenerator
 
 
@@ -31,7 +32,8 @@ class KeyManager:
         os.makedirs(keys_directory, exist_ok=True)
 
     def generate_key(self, recipient_name: str, seed: int = None,
-                     word_symbol_budget: int = WORD_SYMBOL_BUDGET) -> Dict:
+                     word_symbol_budget: int = WORD_SYMBOL_BUDGET,
+                     bigram_symbol_budget: int = BIGRAM_SYMBOL_BUDGET) -> Dict:
         """
         Generate a new random key for a recipient
 
@@ -48,6 +50,8 @@ class KeyManager:
                 them only for testing and examples.
             word_symbol_budget: Number of symbols shared among the common
                 words (0 for none)
+            bigram_symbol_budget: Number of extra symbols shared among the
+                common bigrams (0 for none)
 
         Returns:
             Dictionary containing the key mapping and metadata
@@ -86,6 +90,10 @@ class KeyManager:
         # Add several symbols for each common word
         for word, count in word_symbol_counts(word_symbol_budget).items():
             items.extend([f"WORD_{word}_{i}" for i in range(count)])
+
+        # Add extra symbols for common bigrams
+        for bigram, count in bigram_symbol_counts(bigram_symbol_budget).items():
+            items.extend([f"ALT_{bigram}_{i}" for i in range(count)])
 
         # Shuffle to create random mapping
         shuffled_items = items.copy()

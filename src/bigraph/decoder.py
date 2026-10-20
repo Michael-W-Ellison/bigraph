@@ -45,18 +45,20 @@ class BigramDecoder:
                 actual_symbol = -(symbol_idx + 1)
                 meaning = self.key_manager.get_meaning_from_symbol(self.key, actual_symbol)
 
-                if meaning and meaning in self.key['meaning_to_symbol']:
+                bigram = self._bigram(meaning)
+                if bigram:
                     # This is a bigram, use only the first letter
-                    result.append(meaning[0])
+                    result.append(bigram[0])
 
             elif symbol_idx >= 10000:
                 # High offset indicates partial marker AFTER symbol
                 actual_symbol = symbol_idx - 10000
                 meaning = self.key_manager.get_meaning_from_symbol(self.key, actual_symbol)
 
-                if meaning and meaning in self.key['meaning_to_symbol']:
+                bigram = self._bigram(meaning)
+                if bigram:
                     # This is a bigram, use only the second letter
-                    result.append(meaning[1])
+                    result.append(bigram[1])
 
             else:
                 # Regular symbol
@@ -110,13 +112,31 @@ class BigramDecoder:
                         # Common word
                         result.append(meaning.split('_')[1])
 
-                    elif meaning in self.key['meaning_to_symbol']:
+                    elif self._bigram(meaning):
                         # Regular bigram
-                        result.append(meaning)
+                        result.append(self._bigram(meaning))
 
             i += 1
 
         return ''.join(result)
+
+    @staticmethod
+    def _bigram(meaning: str):
+        """
+        Get the bigram a symbol stands for
+
+        Extra symbols for common bigrams have meanings like 'ALT_TH_3'.
+
+        Returns:
+            The bigram, or None if the meaning is not a bigram
+        """
+        if not meaning:
+            return None
+        if meaning.startswith('ALT_'):
+            return meaning[4:6]
+        if len(meaning) == 2 and meaning.isalpha():
+            return meaning
+        return None
 
     def decode_with_symbols(self, encoded: List[int]) -> List[Dict]:
         """
@@ -152,10 +172,10 @@ class BigramDecoder:
             decoded_text = ""
 
             if meaning:
-                if partial_before and meaning in self.key['meaning_to_symbol']:
-                    decoded_text = meaning[0]
-                elif partial_after and meaning in self.key['meaning_to_symbol']:
-                    decoded_text = meaning[1]
+                if partial_before and self._bigram(meaning):
+                    decoded_text = self._bigram(meaning)[0]
+                elif partial_after and self._bigram(meaning):
+                    decoded_text = self._bigram(meaning)[1]
                 elif meaning.startswith('SPACE_'):
                     if i + 1 < len(encoded):
                         next_meaning = self.key_manager.get_meaning_from_symbol(self.key, encoded[i + 1])
@@ -183,6 +203,8 @@ class BigramDecoder:
                     decoded_text = meaning.split('_', 1)[-1]
                 elif meaning.startswith('WORD_'):
                     decoded_text = meaning.split('_')[1]
+                elif self._bigram(meaning):
+                    decoded_text = self._bigram(meaning)
                 else:
                     decoded_text = meaning
 

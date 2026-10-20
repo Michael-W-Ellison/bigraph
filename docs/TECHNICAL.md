@@ -32,9 +32,10 @@ Symbols are generated as SVG graphics with the following structure:
 2. Groups with fewer extensions are used first; when only part of a group is
    needed, that part is chosen at random using the key's symbol seed
 3. Each symbol is uniquely identified by its configuration
-4. Total symbols needed: 2,721 (676 bigrams + numbers + special chars + math
-   operators + 2,000 common word symbols). This uses every shape with at most
-   3 extensions and part of the shapes with 4 extensions.
+4. Total symbols needed: 4,221 (676 bigrams + numbers + special chars + math
+   operators + 2,000 common word symbols + 1,500 extra bigram symbols). This
+   uses every shape with at most 4 extensions and part of the shapes with 5
+   extensions.
 5. Loading a saved key redraws its symbols from its symbol seed with the current
    generator, so keys saved by older versions do not use older symbols
 
@@ -136,7 +137,18 @@ A    → one of its 70 symbols
 (default 2,000). A budget of 0 gives a key without word symbols, which spells
 every word with bigrams.
 
-#### 3.3.1 Single Letters
+#### 3.3.1 Common Bigrams
+
+The 200 most frequent bigrams in spelled words (`COMMON_BIGRAMS` in
+`constants.py`) get extra symbols, in proportion to how often they are used:
+IN has 44 symbols in total, ER 33, TH 24. Each time a bigram is written, one of
+its symbols is chosen at random with the secure random source, so a repeated
+word does not look the same each time.
+
+`generate_key(bigram_symbol_budget=...)` sets the number of extra symbols
+(default 1,500). A budget of 0 gives every bigram one symbol.
+
+#### 3.3.2 Single Letters
 
 The final letter of an odd-length word that is not a common word, and
 single-letter words that are not common words, are written as one letter of a

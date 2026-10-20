@@ -41,6 +41,16 @@ class BigramEncoder:
         for symbols in self.word_symbols.values():
             symbols.sort()
 
+        # Symbols for each bigram: its own, plus extra ones for common bigrams
+        self.bigram_symbols = defaultdict(list)
+        for meaning, symbol in key['meaning_to_symbol'].items():
+            if meaning.startswith('ALT_'):
+                self.bigram_symbols[meaning[4:6]].append(symbol)
+            elif len(meaning) == 2 and meaning.isalpha():
+                self.bigram_symbols[meaning].append(symbol)
+        for symbols in self.bigram_symbols.values():
+            symbols.sort()
+
         # Track rotation counters
         self.letter_rotation_index = {}
 
@@ -217,7 +227,7 @@ class BigramEncoder:
             # Even length - encode as bigrams
             for i in range(0, len(clean_word), 2):
                 bigram = clean_word[i:i+2]
-                symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
+                symbol = self._bigram_symbol(bigram)
                 if symbol is not None:
                     result.append(symbol)
         else:
@@ -225,7 +235,7 @@ class BigramEncoder:
             # Encode pairs
             for i in range(0, len(clean_word) - 1, 2):
                 bigram = clean_word[i:i+2]
-                symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
+                symbol = self._bigram_symbol(bigram)
                 if symbol is not None:
                     result.append(symbol)
 
@@ -233,6 +243,21 @@ class BigramEncoder:
             result.extend(self._encode_single_letter(clean_word[-1]))
 
         return result
+
+    def _bigram_symbol(self, bigram: str) -> Optional[int]:
+        """
+        Get a symbol for a bigram
+
+        Common bigrams have several symbols; one is chosen at random.
+
+        Args:
+            bigram: Two-letter bigram
+
+        Returns:
+            Symbol index or None if the bigram has no symbol
+        """
+        symbols = self.bigram_symbols.get(bigram)
+        return self.rng.choice(symbols) if symbols else None
 
     def _encode_single_letter(self, letter: str) -> List[int]:
         """
@@ -257,7 +282,7 @@ class BigramEncoder:
         self.letter_rotation_index[letter] = rotation + 1
 
         bigram = f"{letter}{LETTERS[rotation % len(LETTERS)]}"
-        symbol = self.key_manager.get_symbol_for_bigram(self.key, bigram)
+        symbol = self._bigram_symbol(bigram)
         if symbol is not None:
             # Negative indicates partial marker before (only first letter used)
             return [-symbol - 1]

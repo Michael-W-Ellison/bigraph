@@ -212,9 +212,24 @@ def test_word_symbols_in_key(temp_keys_dir):
 def test_larger_word_symbol_budget(temp_keys_dir):
     """Test that a larger budget adds more symbols, using more complex shapes"""
     km = KeyManager(keys_directory=temp_keys_dir)
-    key = km.generate_key('Test', seed=42, word_symbol_budget=2000)
+    key = km.generate_key('Test', seed=42, word_symbol_budget=2500)
 
-    assert len(key['symbol_to_meaning']) == len(set(key['symbols_svg'])) == 721 + 2000
+    assert len(key['symbol_to_meaning']) == len(set(key['symbols_svg'])) == 721 + 2500 + 1500
+
+def test_extra_bigram_symbols_in_key(temp_keys_dir):
+    """Test that common bigrams get extra symbols in proportion to their use"""
+    from bigraph.constants import bigram_symbol_counts, BIGRAM_SYMBOL_BUDGET
+    km = KeyManager(keys_directory=temp_keys_dir)
+    key = km.generate_key('Test', seed=42)
+    counts = bigram_symbol_counts()
+
+    alt_meanings = [m for m in key['meaning_to_symbol'] if m.startswith('ALT_')]
+    assert len(alt_meanings) == BIGRAM_SYMBOL_BUDGET == sum(counts.values())
+    assert counts['IN'] > counts['TH'] > counts.get('EW', 0)
+
+    no_extra = km.generate_key('Test', seed=42, bigram_symbol_budget=0)
+    assert not any(m.startswith('ALT_') for m in no_extra['meaning_to_symbol'])
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
