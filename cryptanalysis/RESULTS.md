@@ -60,3 +60,76 @@ attack leaves information unused:
 
 A stronger attacker, or more computing time, could need less text. Text is
 counted per key: several messages written with the same key add up.
+
+---
+
+# Common Word Symbols
+
+The 100 most common words were given their own symbols, several per word in
+proportion to how often the word is used, chosen at random each time. Space
+markers were changed from a fixed rotation to random choice. The attack was
+updated for this design (see the docstring of `attack.py`):
+
+- It finds space markers from the symbol after each single-letter word ending,
+  which does not depend on their order. Markers were found in every trial.
+- It knows the 100 common words and how many symbols each has, and that
+  common words are never spelled out.
+- It scores text with a word-pair model (which word tends to follow which),
+  so it can use context to tell apart the symbols of different common words.
+
+The budgets compared are 0 (no word symbols, as before), 510 (every shape with
+at most 3 extensions) and 2,000 (uses shapes with 4 extensions). Each trial
+used a new secure key. Raw results: `results_ws_800_1600.json`,
+`results_ws_3200.json` and `results_ws_2000.json`.
+
+## Results
+
+Letters correct, then whole words correct, averaged over the trials (trials in
+parentheses).
+
+| Words | No word symbols | 510 word symbols | 2,000 word symbols |
+|---:|---|---|---|
+| 800 | 80% / 71% (3) | 18% / 7% (3) | not run |
+| 1,600 | 99% / 96% (3) | 79% / 61% (3) | 77% / 54% (2) |
+| 3,200 | 99% / 97% (2) | 84% / 69% (2) | 78% / 57% (2) |
+
+At 800 words without word symbols, two trials reached 97–98% and one stopped
+at 45%.
+
+A single earlier trial at 6,400 words with 510 word symbols recovered about
+88% of letters (measured by aligning the letter sequences, because some words
+decoded to a different length). It ran before a fix to the word count, so its
+word figure is not reported.
+
+The 2,000-symbol trials used different passages from the 510-symbol trials,
+because the passages are chosen per run.
+
+## Findings
+
+- Word symbols roughly double the text needed for a useful result. Without
+  them, 800 words was usually enough to recover almost everything. With 510
+  word symbols, 800 words gave 18% of letters, and 1,600–3,200 words gave about
+  80% of letters and 60–70% of words.
+- What remains wrong is mostly the common words. Long words are spelled with
+  bigram symbols and are still recovered, so the topic and much of the meaning
+  can be read. For example, a 1,600-word trial decoded "THAT IT SHOULD CONTINUE
+  UNTIL ONE OF THE COMBATANTS WAS DISABLED" as "THE YOU WILL CONTINUE UNTIL THEY
+  OF THE COMBATANTS OF DISABLED".
+- 2,000 word symbols lowered recovery a little further than 510: by 2–6 points
+  of letters and 7–12 points of whole words.
+
+## What stopped the attack
+
+Each trial also records the score of the real key under the attacker's model.
+
+- At 800 words with word symbols, the real key scored far higher than the
+  attack's result in every trial. The search did not find the answer, so more
+  computing time or a better search could recover more.
+- At 1,600 words and above with word symbols, the attack's result scored
+  higher than the real key in every trial. More search would not help; the
+  remaining errors are common words that a word-pair model cannot place. An
+  attacker with a stronger model of English (for example, three-word
+  sequences) could recover more of them.
+
+So these results show how this attack fares, not a limit on all attacks.
+Text is counted per key: several messages written with the same key add up.
