@@ -435,11 +435,17 @@ class Solver:
                     used[shape] += 1
                     break
 
+        # Give the remaining symbols the free bigram slots, symbols inside
+        # words first, since they can only be bigrams. Possible word symbols
+        # left over (there can be more of them than word slots, because some
+        # are bigrams used as two-letter words) take what is left.
         taken = Counter({v: len(h) for v, h in self.holders.items()})
         free = [b for b, i in self.ranked_slots if i >= taken[b]]
-        for s in self.symbols:
-            if s not in self.value:
-                self.add(s, free.pop(0))
+        free += [w for w in self.word_values for _ in range(self.capacity[w] - len(self.holders[w]))]
+        remaining = [s for s in self.symbols if s not in self.value]
+        remaining.sort(key=lambda s: s in self.standalone)
+        for s in remaining:
+            self.add(s, free.pop(0))
 
     def word_targets(self, cipher_word, plain_word):
         """Bigram for each symbol so that cipher_word spells plain_word, or None"""
