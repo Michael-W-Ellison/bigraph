@@ -156,6 +156,13 @@ def bigram_symbol_counts(budget: int = BIGRAM_SYMBOL_BUDGET) -> dict:
 # Number characters
 DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
+# Security version of keys made by this release. Raise it when a security
+# update requires new keys: keys made under a lower version can then only
+# decode, and users are asked to replace them.
+#   0: keys from before secure key generation, or stored without a password
+#   1: secure random keys with message check secrets, in encrypted files
+SECURITY_VERSION = 1
+
 # Special marker for partial bigram usage
 PARTIAL_MARKER = '|'
 

@@ -17,13 +17,17 @@ from datetime import datetime
 from .constants import (BIGRAMS, SPACE_MARKERS, SPECIAL_CHARS, MATH_OPERATORS,
                        DIGITS, MULTIPLY_DIVIDE_MARKER, WORD_SYMBOL_BUDGET,
                        word_symbol_counts, BIGRAM_SYMBOL_BUDGET,
-                       bigram_symbol_counts)
+                       bigram_symbol_counts, SECURITY_VERSION)
 from .symbols import SymbolGenerator
 from .security import (default_keys_directory, ensure_private_directory, write_private_file,
                        encrypt_key_file, decrypt_key_file, read_key_file_header, KeyFileError)
 
 # Key data that is rebuilt when a key is loaded, so it is not stored in key files
 DERIVED_FIELDS = ('meaning_to_symbol', 'symbols_svg')
+
+
+class RetiredKeyError(Exception):
+    """The key may only decode: it is outdated, or stored without a password"""
 
 
 class KeyManager:
@@ -39,10 +43,42 @@ class KeyManager:
                 user, when the first key is saved.
         """
         self.keys_directory = keys_directory or default_keys_directory()
+        self.profile_path = os.path.join(self.keys_directory, 'profile.json')
+
+    # -- profile ---------------------------------------------------------
+
+    def load_profile(self) -> Dict:
+        """
+        The local user's profile: a random user ID and a display name
+
+        The ID marks the keys this user created, so a key created here and
+        later recovered from a partner is recognised as the user's own.
+        The profile is created on first use.
+        """
+        if os.path.exists(self.profile_path):
+            with open(self.profile_path, 'r') as f:
+                return json.load(f)
+        profile = {'user_id': secrets.token_hex(16), 'name': ''}
+        self._save_profile(profile)
+        return profile
+
+    def set_user_name(self, name: str) -> Dict:
+        """Set the local user's display name, used as the sender of new keys"""
+        profile = self.load_profile()
+        profile['name'] = name
+        self._save_profile(profile)
+        return profile
+
+    def _save_profile(self, profile: Dict):
+        ensure_private_directory(self.keys_directory)
+        write_private_file(self.profile_path, json.dumps(profile, indent=2))
+
+    # -- keys ------------------------------------------------------------
 
     def generate_key(self, recipient_name: str, seed: int = None,
                      word_symbol_budget: int = WORD_SYMBOL_BUDGET,
-                     bigram_symbol_budget: int = BIGRAM_SYMBOL_BUDGET) -> Dict:
+                     bigram_symbol_budget: int = BIGRAM_SYMBOL_BUDGET,
+                     sender_name: Optional[str] = None) -> Dict:
         """
         Generate a new random key for a recipient
 
@@ -59,6 +95,8 @@ class KeyManager:
                 them only for testing and examples.
             word_symbol_budget: Number of symbols shared among the common
                 words (0 for none)
+            sender_name: Name of the person who will send messages with
+                the key (default: the local user's name)
             bigram_symbol_budget: Number of extra symbols shared among the
                 common bigrams (0 for none)
 
@@ -120,8 +158,15 @@ class KeyManager:
         symbol_gen = SymbolGenerator(seed=symbol_seed)
         symbols_svg = symbol_gen.generate_all_symbols(len(shuffled_items))
 
+        # Each person sends with their own key; this records who made it.
+        # Seeded keys are for testing and are not tied to the local profile.
+        profile = self.load_profile() if seed is None else {'user_id': None, 'name': ''}
+
         # Create key object
         key = {
+            'key_id': secrets.token_hex(8),
+            'sender': sender_name if sender_name is not None else profile['name'],
+            'creator_id': profile['user_id'],
             'recipient': recipient_name,
             'created': datetime.now().isoformat(),
             'seed': seed,
@@ -131,6 +176,7 @@ class KeyManager:
             'symbols_svg': symbols_svg,
             # Secret for message check codes
             'mac_key': mac_key,
+            'security_version': SECURITY_VERSION,
             'version': '2.0'
         }
 
@@ -225,12 +271,16 @@ class KeyManager:
                     text = f.read()
                 header = read_key_file_header(text)
                 if header is not None:
+                    # Encrypted files from before security versions were recorded are version 1
                     info = {'recipient': None, 'created': header.get('created', 'Unknown'),
-                            'encrypted': True}
+                            'encrypted': True,
+                            'security_version': header.get('security_version', 1)}
                 else:
                     data = json.loads(text)
                     info = {'recipient': data.get('recipient', 'Unknown'),
-                            'created': data.get('created', 'Unknown'), 'encrypted': False}
+                            'created': data.get('created', 'Unknown'), 'encrypted': False,
+                            'security_version': 0}
+                info['outdated'] = info['security_version'] < SECURITY_VERSION
             except (OSError, ValueError, KeyFileError) as e:
                 print(f"Error reading key {filename}: {e}")
                 continue
@@ -248,7 +298,7 @@ class KeyManager:
             password: Password protecting the file (at least 8 characters)
         """
         created = str(key.get('created', ''))[:10]
-        text = encrypt_key_file(self._key_data(key), password, created)
+        text = encrypt_key_file(self._key_data(key), password, created, self.security_version(key))
         write_private_file(filepath, text)
 
     def import_key(self, filepath: str, password: Optional[str] = None) -> Dict:
@@ -264,10 +314,71 @@ class KeyManager:
         """
         return self.load_key(filepath, password)
 
+    # -- security status -------------------------------------------------
+
     @staticmethod
-    def key_warnings(key: Dict) -> List[str]:
+    def security_version(key: Dict) -> int:
         """
-        Reasons a key is weak or stored unsafely
+        Security version a key was made under
+
+        Keys from before security versions were recorded are version 1 if they
+        have a symbol seed and a check secret, and version 0 otherwise.
+        """
+        if 'security_version' in key:
+            return key['security_version']
+        return 1 if 'symbol_seed' in key and key.get('mac_key') else 0
+
+    @classmethod
+    def is_retired(cls, key: Dict) -> bool:
+        """
+        True if the key may only decode
+
+        Keys made under an older security version, and keys loaded from a file
+        without a password, can still read messages but cannot write them.
+        """
+        return cls.security_version(key) < SECURITY_VERSION or bool(key.get('_stored_unencrypted'))
+
+    def is_own_key(self, key: Dict) -> bool:
+        """
+        True if the local user created the key, so it is theirs to send with
+
+        Keys from before creators were recorded count as the user's own.
+        """
+        creator = key.get('creator_id')
+        return creator is None or creator == self.load_profile()['user_id']
+
+    def can_encode(self, key: Dict):
+        """
+        Whether the local user may write messages with a key
+
+        Returns:
+            (True, '') or (False, reason)
+        """
+        if self.is_retired(key):
+            return False, ("This key was made under older security rules or is stored without a "
+                           "password, so it can only decode. Create a replacement key and send "
+                           "a copy to " + str(key.get('recipient', 'the recipient')) + ".")
+        if not self.is_own_key(key):
+            return False, ("This key belongs to " + (key.get('sender') or 'your partner') +
+                           " for the messages they send you, so it can only decode. Use your own "
+                           "key to reply.")
+        return True, ''
+
+    def rotate_key(self, old_key: Dict) -> Dict:
+        """
+        Make a replacement for a key, for the same sender and recipient
+
+        The old key is kept for decoding. Save the new key, and export a copy
+        for the recipient.
+        """
+        new_key = self.generate_key(old_key.get('recipient', ''), sender_name=old_key.get('sender'))
+        new_key['replaces'] = old_key.get('key_id')
+        return new_key
+
+    @classmethod
+    def key_warnings(cls, key: Dict) -> List[str]:
+        """
+        Reasons a key is weak, outdated or stored unsafely
 
         Returns:
             List of warnings (empty if none)
@@ -275,14 +386,18 @@ class KeyManager:
         warnings = []
         if 'symbol_seed' not in key:
             warnings.append("This key was made before secure key generation, from a 32-bit seed. "
-                            "Someone with this program can find it by trying every seed. "
-                            "Replace it with a new key.")
+                            "Someone with this program can find it by trying every seed. It can "
+                            "only decode; replace it with a new key.")
         elif key.get('seed') is not None:
             warnings.append("This key was made from a seed. Anyone who knows or guesses the seed "
                             "can recreate it. Use keys made without a seed for real messages.")
+        if cls.security_version(key) < SECURITY_VERSION and 'symbol_seed' in key:
+            warnings.append("This key was made under older security rules. It can only decode; "
+                            "replace it with a new key.")
         if key.get('_stored_unencrypted'):
             warnings.append("This key file is not protected by a password. Anyone who can read the "
-                            "file can read your messages. Import it again to protect it.")
+                            "file can read your messages. It can only decode until you import it "
+                            "again to protect it.")
         if not key.get('mac_key'):
             warnings.append("This key has no check secret, so changed messages cannot be detected.")
         return warnings

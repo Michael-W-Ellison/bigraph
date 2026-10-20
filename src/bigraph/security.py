@@ -110,7 +110,7 @@ def check_password(password: str):
         raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
 
 
-def encrypt_key_file(data: Dict, password: str, created: str) -> str:
+def encrypt_key_file(data: Dict, password: str, created: str, security_version: int) -> str:
     """
     Encrypt key data with a password
 
@@ -118,6 +118,8 @@ def encrypt_key_file(data: Dict, password: str, created: str) -> str:
         data: Key data to protect
         password: Password for the key file
         created: Creation date, which stays readable so keys can be listed
+        security_version: The key's security version, which stays readable so
+            outdated keys can be found without their passwords
 
     Returns:
         Text of the key file
@@ -129,6 +131,7 @@ def encrypt_key_file(data: Dict, password: str, created: str) -> str:
         'format': KEY_FILE_FORMAT,
         'version': KEY_FILE_VERSION,
         'created': created,
+        'security_version': security_version,
         'kdf': {'name': 'scrypt', 'n': SCRYPT_N, 'r': SCRYPT_R, 'p': SCRYPT_P, 'salt': _b64(salt)},
         'cipher': 'AES-256-GCM',
     }

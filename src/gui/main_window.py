@@ -49,6 +49,19 @@ class BigramCryptoGUI:
         self.status_bar = tk.Label(root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
+        self.check_outdated_keys()
+
+    def check_outdated_keys(self):
+        """Tell the user about keys made under older security rules"""
+        outdated = [k for k in self.key_manager.list_keys() if k['outdated']]
+        if outdated:
+            messagebox.showwarning(
+                "Keys need replacing",
+                f"{len(outdated)} key(s) were made under older security rules or are stored "
+                "without a password. They can still decode messages, but cannot write new ones.\n\n"
+                "Load one of your own outdated keys on the Encode tab to create its replacement, "
+                "and ask your partners to replace theirs.")
+
     def create_encode_tab(self):
         """Create the encode message tab"""
         encode_frame = ttk.Frame(self.notebook)
@@ -240,8 +253,12 @@ class BigramCryptoGUI:
         """Name for a key in the lists; encrypted keys show only their date"""
         created = str(key_info['created'])[:10]
         if key_info['encrypted']:
-            return f"Locked key - {created} ({key_info['filename']})"
-        return f"{key_info['recipient']} - {created} (no password)"
+            name = f"Locked key - {created} ({key_info['filename']})"
+        else:
+            name = f"{key_info['recipient']} - {created} (no password)"
+        if key_info['outdated']:
+            name += " - decode only, needs replacing"
+        return name
 
     def ask_password(self, prompt, confirm=False):
         """Ask for a password; with confirm, ask twice and check its length"""
@@ -282,10 +299,10 @@ class BigramCryptoGUI:
             messagebox.showerror("Error", f"Could not open key: {e}")
             return None
 
+        key['_password'] = password
         warnings = self.key_manager.key_warnings(key)
-        if warnings and not messagebox.askyesno(
-                "Key warning", "\n\n".join(warnings) + "\n\nUse this key anyway?", icon='warning'):
-            return None
+        if warnings:
+            messagebox.showwarning("Key warning", "\n\n".join(warnings))
         return key
 
     def selected_key(self, combo, keys_list):
@@ -296,11 +313,60 @@ class BigramCryptoGUI:
         return self.open_key(keys_list[idx])
 
     def load_encode_key(self):
-        """Load selected key for encoding"""
+        """Load selected key for encoding; outdated own keys are replaced first"""
         key = self.selected_key(self.encode_key_combo, self.encode_keys_list)
-        if key:
-            self.current_encode_key = key
-            self.status_bar.config(text=f"Loaded key for {key['recipient']}")
+        if not key:
+            return
+        allowed, reason = self.key_manager.can_encode(key)
+        if not allowed:
+            if self.key_manager.is_retired(key) and self.key_manager.is_own_key(key):
+                if not messagebox.askyesno("Replace key", reason + "\n\nCreate the replacement now?"):
+                    return
+                key = self.replace_key(key)
+                if key is None:
+                    return
+            else:
+                messagebox.showerror("Cannot encode", reason)
+                return
+        self.current_encode_key = key
+        self.status_bar.config(text=f"Loaded key for {key['recipient']}")
+
+    def replace_key(self, old_key):
+        """
+        Create and save a replacement for an outdated key, and offer to share it
+
+        Returns:
+            The new key, or None if it was not created
+        """
+        password = old_key.get('_password')
+        if not password:
+            password = self.ask_password(
+                f"Choose a password to protect the new key for {old_key.get('recipient')}:", confirm=True)
+            if password is None:
+                return None
+        new_key = self.key_manager.rotate_key(old_key)
+        self.key_manager.save_key(new_key, password)
+        self.refresh_all_keys()
+        self.offer_partner_copy(new_key)
+        self.status_bar.config(text=f"Replaced the key for {new_key['recipient']}; "
+                                    "the old key is kept for decoding")
+        return new_key
+
+    def offer_partner_copy(self, key):
+        """Offer to export the copy of a new key that the recipient keeps"""
+        if messagebox.askyesno(
+                "Copy for recipient",
+                f"Export a copy of this key for {key['recipient']} now?\n\n"
+                f"{key['recipient']} needs it to read your messages, and their copy also lets you "
+                "recover your messages if you lose your key. Give them the file and its password "
+                "separately."):
+            self.export_copy(key, f"key_for_{key['key_id']}.key")
+
+    def refresh_all_keys(self):
+        self.refresh_key_list()
+        self.refresh_encode_keys()
+        self.refresh_decode_keys()
+        self.refresh_viewer_keys()
 
     def load_decode_key(self):
         """Load selected key for decoding"""
@@ -429,6 +495,14 @@ class BigramCryptoGUI:
             messagebox.showwarning("Warning", "Please enter a recipient name")
             return
 
+        # The sender's name goes in each key, so the recipient knows whose key it is
+        if not self.key_manager.load_profile()['name']:
+            name = simpledialog.askstring("Your name", "Your name, as recipients will see it:",
+                                          parent=self.root)
+            if not name:
+                return
+            self.key_manager.set_user_name(name.strip())
+
         password = self.ask_password(f"Choose a password to protect the key for {recipient}:", confirm=True)
         if password is None:
             return
@@ -438,10 +512,7 @@ class BigramCryptoGUI:
             filepath = self.key_manager.save_key(key, password)
 
             messagebox.showinfo("Success", f"Key generated and saved to:\n{filepath}")
-            self.refresh_key_list()
-            self.refresh_encode_keys()
-            self.refresh_decode_keys()
-            self.refresh_viewer_keys()
+            self.refresh_all_keys()
 
             # Clear inputs
             self.recipient_name.set('')
@@ -449,6 +520,9 @@ class BigramCryptoGUI:
             self.status_bar.config(text=f"Generated key for {recipient}")
         except Exception as e:
             messagebox.showerror("Error", f"Key generation failed: {str(e)}")
+            return
+
+        self.offer_partner_copy(key)
 
     def refresh_key_list(self):
         """Refresh the key list"""
@@ -460,8 +534,11 @@ class BigramCryptoGUI:
         keys = self.key_manager.list_keys()
 
         for key in keys:
+            recipient = key['recipient'] if key['recipient'] is not None else '(locked)'
+            if key['outdated']:
+                recipient += ' - needs replacing'
             self.key_tree.insert('', 'end', values=(
-                key['recipient'] if key['recipient'] is not None else '(locked)',
+                recipient,
                 str(key['created'])[:19],  # Remove microseconds
                 key['filename']
             ))
@@ -482,7 +559,10 @@ class BigramCryptoGUI:
         key = self.open_key(key_info)
         if key is None:
             return
+        self.export_copy(key, filename)
 
+    def export_copy(self, key, filename):
+        """Write a password-protected copy of a key, for the partner or for recovery"""
         password = self.ask_password(
             "Choose a password for the exported copy (give it to the recipient separately "
             "from the file, for example in person):", confirm=True)
@@ -535,11 +615,13 @@ class BigramCryptoGUI:
                     messagebox.showwarning("Key warning", "\n\n".join(warnings))
                 new_path = self.key_manager.save_key(key, password)
 
-                messagebox.showinfo("Success", f"Key imported successfully:\n{new_path}")
-                self.refresh_key_list()
-                self.refresh_encode_keys()
-                self.refresh_decode_keys()
-                self.refresh_viewer_keys()
+                if self.key_manager.is_own_key(key):
+                    kind = "This is one of your own keys (recovered), for messages you send."
+                else:
+                    kind = (f"This is {key.get('sender') or 'your partner'}'s key, for reading the "
+                            "messages they send you. It cannot be used to write messages.")
+                messagebox.showinfo("Success", f"Key imported successfully:\n{new_path}\n\n{kind}")
+                self.refresh_all_keys()
 
                 self.status_bar.config(text=f"Imported key for {key['recipient']}")
             except WrongPasswordError:

@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Optional
 from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
                        LETTERS, SPECIAL_CHARS,
                        MATH_OPERATORS)
-from .key_manager import KeyManager
+from .key_manager import KeyManager, RetiredKeyError
 from .security import format_message, parse_message
 
 
@@ -28,7 +28,13 @@ class BigramEncoder:
             key: Encryption key dictionary
             rng: Random source for choosing among symbols with the same
                 meaning (default: the operating system's secure source)
+
+        Raises:
+            RetiredKeyError: the key may only decode (it was made under older
+                security rules, or loaded from a file without a password)
         """
+        if KeyManager.is_retired(key):
+            raise RetiredKeyError("This key can only decode messages. Create a replacement key.")
         self.key = key
         self.key_manager = KeyManager()
         self.rng = rng if rng is not None else secrets.SystemRandom()

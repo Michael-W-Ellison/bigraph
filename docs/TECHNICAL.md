@@ -86,9 +86,57 @@ Key files are encrypted with a password (`src/bigraph/security.py`):
 **Key Warnings**:
 
 `KeyManager.key_warnings(key)` reports keys made before secure key
-generation (from a 32-bit seed), keys made from a seed, keys stored without
-a password, and keys without a check secret. The GUI shows these and asks
-before using such a key. The GUI no longer offers seeded keys.
+generation (from a 32-bit seed), keys made from a seed, keys made under an
+older security version, keys stored without a password, and keys without a
+check secret. The GUI shows these when a key is opened. The GUI no longer
+offers seeded keys.
+
+**Retired Keys (Decode Only)**:
+
+A key is retired when it was made under an older security version
+(`SECURITY_VERSION` in `constants.py`) or was loaded from a file without a
+password. Retired keys still decode, so old messages stay readable, but
+`BigramEncoder` refuses them with `RetiredKeyError`. Keys from before
+security versions were recorded count as version 1 if they have a symbol
+seed and a check secret, and version 0 otherwise.
+
+**Security Updates**:
+
+When a release changes how keys must be made, raise `SECURITY_VERSION`.
+Each key file records its security version in the readable part of the
+file, so outdated keys are found without their passwords:
+
+- At startup the GUI lists how many keys are outdated.
+- Loading one of your own outdated keys for encoding offers to create its
+  replacement (`KeyManager.rotate_key`, same sender and recipient, with
+  `replaces` set to the old key's ID) and to export the copy for the
+  recipient. The old key is kept for decoding.
+- A partner's outdated key can only decode; the partner has to send a
+  replacement.
+
+**Partner Copies (Escrow) and Recovery**:
+
+Each person sends with their own key, and both people keep copies of both
+keys:
+
+1. Alice creates a key for messages she sends to Bob, and exports a
+   password-protected copy for him (the GUI offers this right after the key
+   is created). Bob imports it and uses it to read Alice's messages.
+2. Bob does the same with his key for messages he sends to Alice.
+3. If either loses their keys, the other exports copies of both keys back,
+   and old messages can be read again.
+
+Each key records `sender` (the creator's name), `recipient`, `key_id`, and
+`creator_id`, the random ID in the local profile (`profile.json` in the keys
+folder, readable only by the user). `KeyManager.is_own_key` compares
+`creator_id` with the profile, so a recovered key is recognised as the user's
+own if the profile still exists. `KeyManager.can_encode` allows encoding only
+with the user's own, current keys; a partner's key can only decode. Keys from
+before creators were recorded count as the user's own.
+
+Because both people hold both keys, either one could write a message that
+passes the check code of the other's key: check codes show a message was not
+changed by an outsider, not which of the two wrote it.
 
 **Message Check Codes**:
 
@@ -357,12 +405,20 @@ Create new encoder class inheriting from `BigramEncoder` and override:
 ```python
 generate_key(recipient: str, seed: int = None, word_symbol_budget: int = 2000,
              bigram_symbol_budget: int = 1500) -> Dict
+generate_key(..., sender_name: str = None) -> Dict
 save_key(key: Dict, password: str) -> str
 load_key(filepath: str, password: str = None) -> Dict
 list_keys() -> List[Dict]
 export_key(key: Dict, filepath: str, password: str)
 import_key(filepath: str, password: str = None) -> Dict
 key_warnings(key: Dict) -> List[str]
+security_version(key: Dict) -> int
+is_retired(key: Dict) -> bool
+is_own_key(key: Dict) -> bool
+can_encode(key: Dict) -> Tuple[bool, str]
+rotate_key(old_key: Dict) -> Dict
+load_profile() -> Dict
+set_user_name(name: str) -> Dict
 get_symbol_for_bigram(key: Dict, bigram: str) -> Optional[int]
 get_symbol_for_number(key: Dict, number: int) -> Optional[int]
 ```

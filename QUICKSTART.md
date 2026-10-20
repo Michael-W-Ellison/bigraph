@@ -93,7 +93,9 @@ Words with odd numbers of letters use special partial markers.
 ## Tips
 
 - **Keep keys safe**: The key is required to decode messages. Key files are encrypted with a password and readable only by your user account
-- **Unique keys**: Generate a different key for each person
+- **Unique keys**: Generate a different key for each person. Each person sends with their own key and keeps a copy of their partner's key for reading
+- **Keep each other's copies**: If you lose your keys, your partner can export copies of both keys back to you so you can read old messages
+- **Replace outdated keys**: After a security update, outdated keys can only decode; load your own outdated key on the Encode tab to create its replacement and send the new copy to your partner
 - **Share keys securely**: Export a copy with its own password, and give the file and the password through different channels (for example the password in person)
 - **Change keys regularly**: An attacker who collects enough text written with one key, especially with guessable openings or signatures, can read much of it
 - **Check messages**: Saved and copied messages include a check code; decoding reports a message that has been changed

@@ -38,7 +38,8 @@ def test_key_file_is_encrypted(km, key):
     assert 'Alice' not in text
     assert 'symbol_to_meaning' not in text
     assert 'WORD_THE' not in text
-    assert set(data) == {'format', 'version', 'created', 'kdf', 'cipher', 'nonce', 'ciphertext'}
+    assert set(data) == {'format', 'version', 'created', 'security_version', 'kdf', 'cipher',
+                         'nonce', 'ciphertext'}
 
 
 def test_round_trip(km, key):
@@ -218,7 +219,166 @@ def test_old_message_format_still_reads(key):
 
 
 def test_encoder_does_not_create_directories(tmp_path, monkeypatch, key):
-    monkeypatch.chdir(tmp_path)
+    workdir = tmp_path / 'work'
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
     BigramEncoder(key)
     BigramDecoder(key)
-    assert os.listdir(tmp_path) == []
+    assert os.listdir(workdir) == []
+
+
+# ---------------------------------------------------------------------------
+# Retired keys, security versions, ownership and replacement
+# ---------------------------------------------------------------------------
+
+from bigraph.key_manager import RetiredKeyError
+from bigraph.constants import SECURITY_VERSION
+
+
+def write_plain_key(km, key, name='old.key'):
+    os.makedirs(km.keys_directory, exist_ok=True)
+    path = os.path.join(km.keys_directory, name)
+    data = {k: v for k, v in key.items() if k not in ('symbols_svg', 'meaning_to_symbol')}
+    with open(path, 'w') as f:
+        json.dump(data, f)
+    return path
+
+
+def test_new_keys_record_security_version_and_creator(km, key):
+    assert key['security_version'] == SECURITY_VERSION
+    assert key['creator_id'] == km.load_profile()['user_id']
+    assert km.can_encode(key) == (True, '')
+
+
+def test_old_32_bit_key_can_only_decode(km):
+    old = km.generate_key('Old', seed=42)
+    del old['symbol_seed'], old['mac_key'], old['security_version']
+    encoded = BigramEncoder(km.generate_key('Old', seed=42)).encode("Hello there.")
+
+    assert km.is_retired(old)
+    assert km.can_encode(old)[0] is False
+    with pytest.raises(RetiredKeyError):
+        BigramEncoder(old)
+    assert BigramDecoder(old).decode(encoded) == "HELLO THERE"
+
+
+def test_unencrypted_key_file_can_only_decode_until_protected(km, key):
+    loaded = km.load_key(write_plain_key(km, key))
+    with pytest.raises(RetiredKeyError):
+        BigramEncoder(loaded)
+
+    protected = km.load_key(km.save_key(loaded, PASSWORD), PASSWORD)
+    assert not km.is_retired(protected)
+    BigramEncoder(protected)
+
+
+def test_outdated_security_version(km, key, monkeypatch):
+    """Raising SECURITY_VERSION retires keys made under the previous version"""
+    import bigraph.key_manager as key_manager
+    path = km.save_key(key, PASSWORD)
+    monkeypatch.setattr(key_manager, 'SECURITY_VERSION', SECURITY_VERSION + 1)
+
+    assert km.list_keys()[0]['outdated'] is True
+    loaded = km.load_key(path, PASSWORD)
+    assert km.is_retired(loaded)
+    assert any('older security rules' in w for w in km.key_warnings(loaded))
+
+    new_key = km.rotate_key(loaded)
+    assert new_key['security_version'] == SECURITY_VERSION + 1
+    assert not km.is_retired(new_key)
+
+
+def test_list_keys_reports_security_version(km, key):
+    km.save_key(key, PASSWORD)
+    write_plain_key(km, key)
+    listed = {k['filename']: k for k in km.list_keys()}
+
+    assert listed['old.key']['security_version'] == 0
+    assert listed['old.key']['outdated'] is True
+    encrypted = [k for k in listed.values() if k['encrypted']][0]
+    assert encrypted['security_version'] == SECURITY_VERSION
+    assert encrypted['outdated'] is False
+
+
+def test_rotate_key_keeps_sender_and_recipient(km):
+    km.set_user_name('Alice')
+    old = km.generate_key('Bob')
+    new = km.rotate_key(old)
+
+    assert (new['sender'], new['recipient']) == ('Alice', 'Bob')
+    assert new['replaces'] == old['key_id']
+    assert new['key_id'] != old['key_id']
+    assert new['symbol_to_meaning'] != old['symbol_to_meaning']
+
+
+# ---------------------------------------------------------------------------
+# Partner copies (escrow) and recovery
+# ---------------------------------------------------------------------------
+
+def test_partner_key_decodes_but_cannot_encode(tmp_path):
+    """Each person sends with their own key; the partner's copy only decodes"""
+    alice = KeyManager(keys_directory=str(tmp_path / 'alice'))
+    bob = KeyManager(keys_directory=str(tmp_path / 'bob'))
+    alice.set_user_name('Alice')
+    bob.set_user_name('Bob')
+
+    alice_key = alice.generate_key('Bob')
+    shared = str(tmp_path / 'for_bob.key')
+    alice.export_key(alice_key, shared, 'share password')
+    at_bob = bob.import_key(shared, 'share password')
+
+    assert at_bob['sender'] == 'Alice'
+    assert not bob.is_own_key(at_bob)
+    allowed, reason = bob.can_encode(at_bob)
+    assert not allowed and "belongs to Alice" in reason
+
+    message = BigramEncoder(alice_key).format_message(BigramEncoder(alice_key).encode("See you soon."))
+    encoded, verified = BigramDecoder(at_bob).read_message(message)
+    assert verified and BigramDecoder(at_bob).decode(encoded) == "SEE YOU SOON"
+
+
+def test_recovery_from_partner(tmp_path):
+    """If Alice loses her keys, Bob's copies let her read old messages again"""
+    alice = KeyManager(keys_directory=str(tmp_path / 'alice'))
+    bob = KeyManager(keys_directory=str(tmp_path / 'bob'))
+    alice.set_user_name('Alice')
+    bob.set_user_name('Bob')
+
+    alice_key = alice.generate_key('Bob')
+    bob_key = bob.generate_key('Alice')
+    # Exchange copies
+    alice.export_key(alice_key, str(tmp_path / 'a.key'), 'share password')
+    bob.export_key(bob_key, str(tmp_path / 'b.key'), 'share password')
+    bob.save_key(bob.import_key(str(tmp_path / 'a.key'), 'share password'), PASSWORD)
+    alice.save_key(alice.import_key(str(tmp_path / 'b.key'), 'share password'), PASSWORD)
+
+    sent = BigramEncoder(alice_key).encode("The meeting is at nine.")
+    received = BigramEncoder(bob_key).encode("I will be there.")
+
+    # Alice's keys are lost, but her profile remains
+    for k in alice.list_keys():
+        os.remove(k['filepath'])
+
+    # Bob exports his copies of both keys back to Alice
+    for k in bob.list_keys():
+        copy = bob.load_key(k['filepath'], PASSWORD)
+        bob.export_key(copy, str(tmp_path / f"back_{copy['key_id']}.key"), 'recovery password')
+        restored = alice.import_key(str(tmp_path / f"back_{copy['key_id']}.key"), 'recovery password')
+        if restored['sender'] == 'Alice':
+            assert alice.is_own_key(restored)
+            assert BigramDecoder(restored).decode(sent) == "THE MEETING IS AT NINE"
+        else:
+            assert not alice.is_own_key(restored)
+            assert BigramDecoder(restored).decode(received) == "I WILL BE THERE"
+
+
+def test_seeded_keys_do_not_touch_profile(km):
+    km.generate_key('Test', seed=1)
+    assert not os.path.exists(km.profile_path)
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='file modes are POSIX-only')
+def test_profile_is_private(km):
+    km.set_user_name('Alice')
+    assert stat.S_IMODE(os.stat(km.profile_path).st_mode) == 0o600
+    assert km.list_keys() == []
