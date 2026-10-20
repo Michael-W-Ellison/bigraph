@@ -32,8 +32,8 @@ Symbols are generated as SVG graphics with the following structure:
 2. Groups with fewer extensions are used first; when only part of a group is
    needed, that part is chosen at random using the key's symbol seed
 3. Each symbol is uniquely identified by its configuration
-4. Total symbols needed: 4,221 (676 bigrams + numbers + special chars + math
-   operators + 2,000 common word symbols + 1,500 extra bigram symbols). This
+4. Total symbols needed: 1,231 (676 bigrams + numbers + special chars + math
+   operators + 150 common word symbols + 360 extra bigram symbols). This
    uses every shape with at most 4 extensions and part of the shapes with 5
    extensions.
 5. Loading a saved key redraws its symbols from its symbol seed with the current
@@ -158,7 +158,7 @@ changed by an outsider, not which of the two wrote it.
   (`RETAIN` line, 30 days by default, `DEFAULT_RETENTION_DAYS`). Expired
   messages are deleted at startup and every hour while the GUI is open.
 - **Automatic key replacement.** A key is replaced when it has written
-  `KEY_WORD_LIMIT` (2,000) words or is `KEY_MAX_AGE_DAYS` (30) days old. The
+  `KEY_WORD_LIMIT` (1,000) words or is `KEY_MAX_AGE_DAYS` (30) days old. The
   next message carries the new key in its control block, encrypted with
   AES-256-GCM under a key derived from the old key's check secret, so the
   symbol cipher never carries key material. The recipient's program saves the
@@ -264,30 +264,35 @@ TEST → TE, ST (even, straightforward)
 
 The 100 most common English words (`COMMON_WORDS` in `constants.py`) have
 their own symbols. Each word gets several, in proportion to how often it is
-used: THE has 170, AND 110, OF 95, and the least common words 5. Each time a
+used: THE has 6, AND and OF 4 each, and the least common words 1. Each time a
 common word appears, one of its symbols is chosen at random with the secure
 random source, so each symbol is used about equally often and a word does not
 look the same each time.
 
 ```
-THE  → one of its 170 symbols
-A    → one of its 70 symbols
+THE  → one of its 6 symbols
+A    → one of its 3 symbols
 ```
 
 `generate_key(word_symbol_budget=...)` sets the total number of word symbols
-(default 2,000). A budget of 0 gives a key without word symbols, which spells
+(default 150). A budget of 0 gives a key without word symbols, which spells
 every word with bigrams.
 
 #### 3.3.1 Common Bigrams
 
 The 200 most frequent bigrams in spelled words (`COMMON_BIGRAMS` in
 `constants.py`) get extra symbols, in proportion to how often they are used:
-IN has 44 symbols in total, ER 33, TH 24. Each time a bigram is written, one of
+IN has 11 symbols in total, ER 9, TH 6. Each time a bigram is written, one of
 its symbols is chosen at random with the secure random source, so a repeated
 word does not look the same each time.
 
 `generate_key(bigram_symbol_budget=...)` sets the number of extra symbols
-(default 1,500). A budget of 0 gives every bigram one symbol.
+(default 360). A budget of 0 gives every bigram one symbol.
+
+The defaults (150 word symbols and 360 extra bigram symbols) keep keys to the
+1,231 shapes with at most 3 extensions. `cryptanalysis/RESULTS.md` compares
+this with larger budgets, which use busier shapes and resist the attacks for
+longer; the shorter `KEY_WORD_LIMIT` makes up the difference.
 
 #### 3.3.2 Single Letters
 
@@ -462,8 +467,8 @@ Create new encoder class inheriting from `BigramEncoder` and override:
 ### KeyManager
 
 ```python
-generate_key(recipient: str, seed: int = None, word_symbol_budget: int = 2000,
-             bigram_symbol_budget: int = 1500) -> Dict
+generate_key(recipient: str, seed: int = None, word_symbol_budget: int = 150,
+             bigram_symbol_budget: int = 360) -> Dict
 generate_key(..., sender_name: str = None) -> Dict
 save_key(key: Dict, password: str) -> str
 load_key(filepath: str, password: str = None) -> Dict

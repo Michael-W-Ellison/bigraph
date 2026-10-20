@@ -120,5 +120,14 @@ def test_plain_vertical_line_reserved_for_partial_marker():
     assert marker.count('<line') == 1
     assert 'x1="50" y1="15" x2="50" y2="85"' in marker
 
+
+def test_default_keys_use_only_clean_shapes():
+    """Default keys fit in the shapes with at most 3 extensions"""
+    gen = SymbolGenerator(seed=42)
+    configs = gen._generate_symbol_configurations(TOTAL_SYMBOLS)
+
+    assert TOTAL_SYMBOLS == 1231
+    assert max(len(c['extensions']) for c in configs) <= 3
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
