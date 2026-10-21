@@ -14,3 +14,7 @@ test_keys/
 
 # Cryptanalysis corpus cache
 cryptanalysis/data/
+
+# PyInstaller output
+build/
+dist/

@@ -1,0 +1,5 @@
+# Tools for testing and for building the standalone apps
+-r requirements.txt
+pytest>=7.4
+pytest-cov>=4.1
+pyinstaller>=6.0

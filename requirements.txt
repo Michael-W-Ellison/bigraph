@@ -1,11 +1,6 @@
-# Bigraph Cryptography System Requirements
-
-# GUI Framework (cross-platform, Android compatible)
-kivy==2.2.1
-kivy-garden==0.1.5
-
-# For fallback to simpler GUI
-# tkinter is built-in to Python
+# Bigraph Cryptography System requirements
+# The GUI uses tkinter, which comes with Python (on Linux it may be a separate
+# package, such as python3-tk).
 
 # Key file encryption (AES-GCM, scrypt)
 cryptography>=42.0
@@ -13,7 +8,3 @@ cryptography>=42.0
 # OS key store (Windows Credential Manager, macOS Keychain, Linux Secret Service),
 # which holds the secrets that make deleted messages and keys unrecoverable
 keyring>=25.0
-
-# Utilities
-pytest==7.4.3
-pytest-cov==4.1.0

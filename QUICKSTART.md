@@ -2,15 +2,40 @@
 
 ## Installation
 
-No installation required! Just Python 3.7+ with Tkinter (included in most Python installations).
+Download the app for your system from the project's Releases page. No Python
+is needed.
 
-## Running the Application
+| System | File | To run |
+|---|---|---|
+| Windows (64-bit) | `Bigraph-windows-x86_64.zip` | Unzip, then double-click `Bigraph.exe` |
+| macOS (Apple Silicon) | `Bigraph-macos-arm64.zip` | Unzip, then open `Bigraph.app` |
+| Linux (x86-64) | `Bigraph-linux-x86_64.tar.gz` | `tar -xzf Bigraph-linux-x86_64.tar.gz` then `./Bigraph` |
+
+The apps are not signed, so the first time you open one:
+
+- **Windows** may show "Windows protected your PC": click **More info**, then **Run anyway**.
+- **macOS** may say the app "cannot be opened": right-click (or Control-click) the app, choose **Open**, then **Open** again. Or open **System Settings > Privacy & Security** and click **Open Anyway**.
+- **Linux**: if the file will not run, make it executable with `chmod +x Bigraph`.
+
+The program keeps the secrets that make deleted messages unrecoverable in your
+system's key store. Windows and macOS have one built in. On Linux you need a
+desktop key store running, such as GNOME Keyring or KWallet; most desktop
+installations include one.
+
+To check that everything works without opening a window, run the app with
+`--self-test`.
+
+### Running from source
+
+With Python 3.8 or newer (and Tkinter, which on Linux may be a separate
+package such as `python3-tk`):
 
 ```bash
+pip install -r requirements.txt
 python main.py
 ```
 
-This launches the GUI application.
+To build the apps yourself, see `docs/BUILDING.md`.
 
 ## 5-Minute Tutorial
 
