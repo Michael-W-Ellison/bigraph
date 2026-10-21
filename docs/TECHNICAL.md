@@ -527,8 +527,8 @@ load_and_decode(filepath: str) -> str
 
 ```python
 __init__(seed: int = None)
-generate_all_symbols() -> List[str]
-save_symbol_to_file(svg_content: str, filename: str)
+generate_all_symbols(count: int = TOTAL_SYMBOLS) -> List[str]
+create_partial_marker_svg() -> str
 ```
 
 ## Testing Strategy
