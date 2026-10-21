@@ -11,8 +11,8 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from bigraph.key_manager import KeyManager
-from bigraph.encoder import BigramEncoder
-from bigraph.decoder import BigramDecoder
+from bigraph.conversation import ConversationManager, ConversationError
+from bigraph.keystore import KeyStoreUnavailableError
 from bigraph.security import (check_password, KeyFileError, PasswordRequiredError,
                               WrongPasswordError, MessageIntegrityError)
 
@@ -33,6 +33,7 @@ class BigramCryptoGUI:
 
         # Initialize key manager
         self.key_manager = KeyManager()
+        self.conversations = ConversationManager(self.key_manager)
         self.current_key = None
 
         # Create notebook (tabbed interface)
@@ -44,12 +45,23 @@ class BigramCryptoGUI:
         self.create_decode_tab()
         self.create_key_management_tab()
         self.create_symbol_viewer_tab()
+        self.create_conversations_tab()
 
         # Status bar
         self.status_bar = tk.Label(root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.check_outdated_keys()
+        self.run_cleanup()
+
+    def run_cleanup(self):
+        """Delete expired messages and unused replaced keys, now and every hour"""
+        try:
+            self.conversations.cleanup()
+            self.refresh_conversations()
+        except KeyStoreUnavailableError as e:
+            self.status_bar.config(text=str(e))
+        self.root.after(60 * 60 * 1000, self.run_cleanup)
 
     def check_outdated_keys(self):
         """Tell the user about keys made under older security rules"""
@@ -197,6 +209,65 @@ class BigramCryptoGUI:
         ttk.Button(button_frame, text="Delete Key", command=self.delete_key).pack(side='left', padx=5)
 
         self.refresh_key_list()
+
+    def create_conversations_tab(self):
+        """Create the stored conversations tab"""
+        frame = ttk.Frame(self.notebook)
+        self.notebook.add(frame, text="Conversations")
+
+        columns = ('Partner', 'Direction', 'Sent', 'Deleted on', 'Message')
+        self.message_tree = ttk.Treeview(frame, columns=columns, show='headings', height=15)
+        for column, width in zip(columns, (120, 80, 150, 150, 350)):
+            self.message_tree.heading(column, text=column)
+            self.message_tree.column(column, width=width)
+        self.message_tree.pack(fill='both', expand=True, padx=10, pady=10)
+
+        ttk.Label(frame, text="Messages are deleted for good on the date shown, which the sender "
+                              "sets. Deleting a message you sent also deletes the recipient's copy "
+                              "when your next message reaches them.",
+                  wraplength=800).pack(fill='x', padx=10)
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill='x', padx=10, pady=10)
+        ttk.Button(buttons, text="Refresh", command=self.refresh_conversations).pack(side='left', padx=5)
+        ttk.Button(buttons, text="Delete Message", command=self.delete_selected_message).pack(side='left', padx=5)
+        ttk.Button(buttons, text="Delete Conversation",
+                   command=self.delete_selected_conversation).pack(side='left', padx=5)
+
+    def refresh_conversations(self):
+        for item in self.message_tree.get_children():
+            self.message_tree.delete(item)
+        try:
+            records = self.conversations.records()
+        except KeyStoreUnavailableError:
+            return
+        for record in records:
+            preview = record['plaintext'][:60]
+            self.message_tree.insert('', 'end', iid=record['id'], values=(
+                record['partner'], record['direction'], record['sent'], record['expires'][:10], preview))
+
+    def delete_selected_message(self):
+        selection = self.message_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a message to delete")
+            return
+        if messagebox.askyesno("Delete message", "Delete the selected message for good?"):
+            for message_id in selection:
+                self.conversations.delete_message(message_id)
+            self.refresh_conversations()
+            self.status_bar.config(text="Message deleted")
+
+    def delete_selected_conversation(self):
+        selection = self.message_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a message from the conversation")
+            return
+        partner = self.message_tree.item(selection[0])['values'][0]
+        if messagebox.askyesno("Delete conversation",
+                               f"Delete every stored message with {partner} for good?"):
+            self.conversations.delete_conversation(partner)
+            self.refresh_conversations()
+            self.status_bar.config(text=f"Deleted the conversation with {partner}")
 
     def create_symbol_viewer_tab(self):
         """Create the symbol viewer tab"""
@@ -394,16 +465,25 @@ class BigramCryptoGUI:
             return
 
         try:
-            encoder = BigramEncoder(self.current_encode_key)
-            encoded = encoder.encode(plaintext)
-
-            # Display encoded message, with its check code
-            self.encode_output.delete('1.0', tk.END)
-            self.encode_output.insert('1.0', encoder.format_message(encoded))
-
-            self.status_bar.config(text=f"Encoded {len(plaintext)} characters to {len(encoded)} symbols")
+            result = self.conversations.send(self.current_encode_key, plaintext)
+        except (ConversationError, KeyStoreUnavailableError) as e:
+            messagebox.showerror("Error", str(e))
+            return
         except Exception as e:
             messagebox.showerror("Error", f"Encoding failed: {str(e)}")
+            return
+
+        # Display the message, with its check code and any control block
+        self.encode_output.delete('1.0', tk.END)
+        self.encode_output.insert('1.0', result['text'])
+        self.current_encode_key = result['key']
+        self.refresh_conversations()
+
+        status = f"Encoded and stored a message to {result['key'].get('recipient')}"
+        if result['new_key']:
+            self.refresh_all_keys()
+            status += "; this message also carries your replacement key, used from now on"
+        self.status_bar.config(text=status)
 
     def decode_message(self):
         """Decode the input message"""
@@ -417,16 +497,31 @@ class BigramCryptoGUI:
             return
 
         try:
-            decoder = BigramDecoder(self.current_decode_key)
-            encoded, verified = decoder.read_message(encoded_text)
-            decoded = decoder.decode(encoded)
+            needed = self.conversations.message_key_id(encoded_text)
+            if needed and needed != self.current_decode_key.get('key_id'):
+                messagebox.showerror("Wrong key", "This message was written with a different key. "
+                                                  "Load the sender's key that matches it.")
+                return
+            result = self.conversations.receive(encoded_text, self.current_decode_key)
 
             # Display decoded message
             self.decode_output.delete('1.0', tk.END)
-            self.decode_output.insert('1.0', decoded)
+            self.decode_output.insert('1.0', result['plaintext'])
+            self.refresh_conversations()
 
-            check = "check code verified" if verified else "no check code, so changes cannot be detected"
-            self.status_bar.config(text=f"Decoded {len(encoded)} symbols to {len(decoded)} characters ({check})")
+            check = ("check code verified" if result['verified']
+                     else "no check code, so changes cannot be detected")
+            status = f"Decoded and stored ({check})"
+            if result['new_key']:
+                self.current_decode_key = result['new_key']
+                self.refresh_all_keys()
+                status += "; the sender replaced their key, and the new one is now loaded"
+            if result['deleted_messages'] or result['deleted_keys']:
+                status += (f"; the sender deleted {len(result['deleted_messages'])} message(s) "
+                           f"and {len(result['deleted_keys'])} old key(s)")
+            self.status_bar.config(text=status)
+        except (ConversationError, KeyStoreUnavailableError) as e:
+            messagebox.showerror("Error", str(e))
         except MessageIntegrityError as e:
             messagebox.showerror("Message changed", str(e))
         except Exception as e:

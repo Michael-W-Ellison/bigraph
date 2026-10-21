@@ -173,7 +173,16 @@ def example_key_management():
     print("Example 7: Key Management")
     print("=" * 60)
 
-    km = KeyManager(keys_directory="example_keys")
+    # Saved keys need an OS key store; without one, use an in-memory store
+    # for this demonstration (its secrets are lost when the program exits)
+    from bigraph.keystore import KeyStore, MemoryKeyStore, KeyStoreUnavailableError
+    keystore = KeyStore()
+    try:
+        keystore.check_available()
+    except KeyStoreUnavailableError:
+        print("No OS key store found; using an in-memory one for this example.")
+        keystore = MemoryKeyStore()
+    km = KeyManager(keys_directory="example_keys", keystore=keystore)
     password = "example password"
 
     # Generate multiple keys (without a seed, so they cannot be recreated)

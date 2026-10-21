@@ -216,7 +216,7 @@ def test_larger_word_symbol_budget(temp_keys_dir):
     km = KeyManager(keys_directory=temp_keys_dir)
     key = km.generate_key('Test', seed=42, word_symbol_budget=2500)
 
-    assert len(key['symbol_to_meaning']) == len(set(key['symbols_svg'])) == 721 + 2500 + 1500
+    assert len(key['symbol_to_meaning']) == len(set(key['symbols_svg'])) == 721 + 2500 + 360
 
 def test_extra_bigram_symbols_in_key(temp_keys_dir):
     """Test that common bigrams get extra symbols in proportion to their use"""

@@ -297,3 +297,47 @@ gives that attacker known words; once a few hundred have accumulated, together
 with a few thousand words of text, this attack can read most of the remaining
 text. Changing keys often, and avoiding fixed openings and closings, limits
 both.
+
+---
+
+# Clean Shapes Only (at Most 3 Extensions)
+
+Keys limited to the 1,231 shapes with at most 3 extensions have 510 symbols
+beyond the basic 721. These runs split the 510 between common word symbols
+and extra bigram symbols, and attack each split with the search attack from
+`attack.py` (run by `compare_configs.py`, same passages for every split) and
+the grouping attack (`attack_grouping.py`). Raw results:
+`results_clean_search_1600.json`, `results_clean_search_3200.json`,
+`results_clean_510_0_grouping.json`, `results_clean_255_255_grouping.json`.
+
+## Results
+
+Letters correct, 2 trials each (search attack unless noted).
+
+| Split (word / bigram) | 1,600 words | 3,200 words |
+|---|---|---|
+| 510 / 0 | 79%, 79% | 83%, 84% |
+| 255 / 255 | 12%, 20% | 87%, 88% |
+| 150 / 360 | 7%, 9% | 46%, 86% |
+| 2,000 / 1,500 (current default, busier shapes) | 14% (earlier run) | 8% (earlier run) |
+
+The grouping attack did worse than the search attack on these splits: 9–15%
+at 1,600 words and 6–10% at 6,400 words for 510 / 0, and 11–16% at 1,600
+words for 255 / 255. Its run stopped at the time limit before the rest.
+
+## Findings
+
+- With only clean shapes, the search attack read most of the text at 3,200
+  words for every split: 83–88% of letters, except one 150 / 360 trial at 46%.
+  At 3,200 words the attack's result scored close to or better than the real
+  key, so more search would not have protected the cold-start trials that
+  held.
+- At 1,600 words, the splits with extra bigram symbols held (7–20% of
+  letters); the split without them did not (79%).
+- So with clean shapes, a key is safe from this attack somewhere between
+  1,600 and 3,200 words of text, not at 2,000 with certainty. The current
+  default (2,000 word and 1,500 bigram symbols, with busier shapes) held at
+  3,200 words (8%) and beyond.
+- A key limit below the measured safe point (for example 1,000 words) would
+  keep clean-shape keys out of reach of this attack, at the cost of
+  exchanging keys more often. Known plaintext lowers the safe point further.

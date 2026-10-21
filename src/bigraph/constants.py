@@ -42,7 +42,7 @@ COMMON_WORDS = [
 ]
 
 # Number of symbols shared among the common words, in proportion to their use
-WORD_SYMBOL_BUDGET = 2000
+WORD_SYMBOL_BUDGET = 150
 
 
 def proportional_counts(items: list, budget: int) -> dict:
@@ -130,7 +130,7 @@ COMMON_BIGRAMS = [
 
 # Number of extra symbols shared among the common bigrams, in proportion to
 # their use
-BIGRAM_SYMBOL_BUDGET = 1500
+BIGRAM_SYMBOL_BUDGET = 360
 
 
 def bigram_symbol_counts(budget: int = BIGRAM_SYMBOL_BUDGET) -> dict:
@@ -162,6 +162,17 @@ DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 #   0: keys from before secure key generation, or stored without a password
 #   1: secure random keys with message check secrets, in encrypted files
 SECURITY_VERSION = 1
+
+# A key is replaced automatically once it has written this many words, or is
+# this many days old. With the default symbol budgets (only shapes with at
+# most 3 extensions), the attacks in cryptanalysis/ failed at 1,600 words
+# written with one key and read most of the text at 3,200 words, so keys are
+# replaced well before either.
+KEY_WORD_LIMIT = 1000
+KEY_MAX_AGE_DAYS = 30
+
+# Days a message is kept before it is deleted, unless its sender sets another
+DEFAULT_RETENTION_DAYS = 30
 
 # Special marker for partial bigram usage
 PARTIAL_MARKER = '|'

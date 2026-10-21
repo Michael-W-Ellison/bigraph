@@ -1,0 +1,42 @@
+[
+  {
+    "budget": 255,
+    "bigram_budget": 255,
+    "words": 1589,
+    "letters": 6784,
+    "symbols": 5355,
+    "markers_found": true,
+    "letter_accuracy": 0.11084905660377359,
+    "word_accuracy": 0.056639395846444306,
+    "seconds": 1094.3,
+    "found_score": -17214,
+    "true_score": -11784,
+    "sample_plain": "WE DO NOT EAT HUMAN FLESH SHAME CRIED WITHERSPOON WHY NOT COMRADE WITHERSPOON SAID GREGORY WITH A FEVERISH GAIETY IS ANXIOUS TO KNOW WHY NOBODY EATS HIM LAUGHTER IN OUR SOCIETY AT ANY RATE WHICH LOVES HIM SINCERELY WHICH IS",
+    "sample_decoded": "THE IN THE RED FARER SPENT RECOR INESE MAINTENANCE MAD THE INDERET MAINTENANCE THE AROUSED AND THE LENGLORE ARESTE THE SHALARM OF IT WAS ENLAST LACE AND QUIETETE OF ARM THRUSTS OF THE MAIN OF THESE AND SPOUTEDED OF THE",
+    "nominal_words": 1600,
+    "trial": 0,
+    "iterations": 2000000,
+    "restarts": 2,
+    "sweeps": 20
+  },
+  {
+    "budget": 255,
+    "bigram_budget": 255,
+    "words": 1600,
+    "letters": 6344,
+    "symbols": 5070,
+    "markers_found": true,
+    "letter_accuracy": 0.15904791929382092,
+    "word_accuracy": 0.051875,
+    "seconds": 909.2,
+    "found_score": -14943,
+    "true_score": -10393,
+    "sample_plain": "WE THINK OF A WICKED MAN AS VIGILANT WE CAN T THINK OF A WICKED MAN WHO IS HONESTLY AND SINCERELY DREAMY BECAUSE WE DAREN T THINK OF A WICKED MAN ALONE WITH HIMSELF AN ABSENTMINDED MAN MEANS A GOOD",
+    "sample_decoded": "THE THE OF THE PEERED OF THE RESTRESS THE OF M THE THE THE ENERED OF THE THE FIERCHED OF STARSEERM DIRTED SPRAINT THE HANDS A THE AND THE PEERED OF RECAS OF ERUPERM THE CHRISTERDEED OF NERAS THE IN",
+    "nominal_words": 1600,
+    "trial": 1,
+    "iterations": 2000000,
+    "restarts": 2,
+    "sweeps": 20
+  }
+]

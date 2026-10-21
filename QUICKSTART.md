@@ -2,15 +2,40 @@
 
 ## Installation
 
-No installation required! Just Python 3.7+ with Tkinter (included in most Python installations).
+Download the app for your system from the project's Releases page. No Python
+is needed.
 
-## Running the Application
+| System | File | To run |
+|---|---|---|
+| Windows (64-bit) | `Bigraph-windows-x86_64.zip` | Unzip, then double-click `Bigraph.exe` |
+| macOS (Apple Silicon) | `Bigraph-macos-arm64.zip` | Unzip, then open `Bigraph.app` |
+| Linux (x86-64) | `Bigraph-linux-x86_64.tar.gz` | `tar -xzf Bigraph-linux-x86_64.tar.gz` then `./Bigraph` |
+
+The apps are not signed, so the first time you open one:
+
+- **Windows** may show "Windows protected your PC": click **More info**, then **Run anyway**.
+- **macOS** may say the app "cannot be opened": right-click (or Control-click) the app, choose **Open**, then **Open** again. Or open **System Settings > Privacy & Security** and click **Open Anyway**.
+- **Linux**: if the file will not run, make it executable with `chmod +x Bigraph`.
+
+The program keeps the secrets that make deleted messages unrecoverable in your
+system's key store. Windows and macOS have one built in. On Linux you need a
+desktop key store running, such as GNOME Keyring or KWallet; most desktop
+installations include one.
+
+To check that everything works without opening a window, run the app with
+`--self-test`.
+
+### Running from source
+
+With Python 3.8 or newer (and Tkinter, which on Linux may be a separate
+package such as `python3-tk`):
 
 ```bash
+pip install -r requirements.txt
 python main.py
 ```
 
-This launches the GUI application.
+To build the apps yourself, see `docs/BUILDING.md`.
 
 ## 5-Minute Tutorial
 
@@ -99,6 +124,8 @@ Words with odd numbers of letters use special partial markers.
 - **Share keys securely**: Export a copy with its own password, and give the file and the password through different channels (for example the password in person)
 - **Change keys regularly**: An attacker who collects enough text written with one key, especially with guessable openings or signatures, can read much of it
 - **Check messages**: Saved and copied messages include a check code; decoding reports a message that has been changed
+- **Deletion is final**: Messages are kept for the time the sender chooses (30 days by default), then deleted so they cannot be recovered. Deleting a message you sent also deletes the recipient's copy when your next message reaches them. This needs an OS key store (Windows Credential Manager, macOS Keychain, or GNOME Keyring/KWallet on Linux), and cannot reach text you copy or save outside the program
+- **Keys replace themselves**: After 1,000 words or 30 days, your next message carries a new key to your partner automatically
 - **Backup keys**: Export keys to backup files
 - **Don't use seeds for real keys**: A seed makes a key reproducible by anyone who knows or guesses it; use seeds only for testing
 
