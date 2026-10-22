@@ -46,7 +46,8 @@ jobs:
 
       - name: Read version
         run: |
-          version=$(python -c "import sys; sys.path.insert(0, 'src'); import bigraph; print(bigraph.__version__)")
+          # Read the file instead of importing bigraph, which needs the requirements
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+?)\"', open('src/bigraph/__init__.py').read()).group(1))")
           if [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "${GITHUB_REF#refs/tags/v}" != "$version" ]; then
             echo "Tag ${GITHUB_REF#refs/tags/} does not match __version__ $version"
             exit 1
