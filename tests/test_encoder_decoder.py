@@ -302,9 +302,6 @@ def no_word_symbols_key():
     """Create a test key without common word symbols"""
     km = KeyManager(keys_directory='test_keys')
     return km.generate_key('TestRecipient', seed=42, word_symbol_budget=0)
-    # Clean up after tests
-    if os.path.exists('test_keys'):
-        shutil.rmtree('test_keys')
 
 
 def test_common_bigram_uses_one_of_its_symbols(test_key):

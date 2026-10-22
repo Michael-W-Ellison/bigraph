@@ -18,3 +18,4 @@ cryptanalysis/data/
 # PyInstaller output
 build/
 dist/
+out/

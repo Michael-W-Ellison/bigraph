@@ -234,8 +234,3 @@ class SymbolGenerator:
         else:
             x, y = along, center + across
         return round(x, 2), round(y, 2)
-
-    def save_symbol_to_file(self, svg_content: str, filename: str):
-        """Save an SVG symbol to a file"""
-        with open(filename, 'w') as f:
-            f.write(svg_content)

@@ -26,7 +26,6 @@ import multiprocessing
 import os
 import random
 import time
-from collections import Counter
 
 import attack as base
 import attack_grouping as grouping

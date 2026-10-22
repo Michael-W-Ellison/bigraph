@@ -6,8 +6,9 @@ Build on each operating system for that system (with requirements-dev.txt
 installed):
     pyinstaller packaging/bigraph.spec --distpath dist --workpath build --noconfirm
 
-Produces dist/Bigraph (Linux), dist/Bigraph.exe (Windows), or
-dist/Bigraph.app (macOS).
+Produces the folder dist/Bigraph (Windows and Linux, with Bigraph.exe or
+Bigraph inside), or dist/Bigraph.app (macOS). The installers in
+packaging/windows and packaging/linux are built from the folder.
 """
 
 import os
@@ -56,6 +57,9 @@ if sys.platform == 'darwin':
     app = BUNDLE(coll, name='Bigraph.app', bundle_identifier='org.bigraph.app',
                  info_plist={'NSHighResolutionCapable': True})
 else:
-    # A single executable file
-    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name='Bigraph',
-              console=False, upx=False)
+    # A folder with the executable, as installers expect; it also starts
+    # faster than a single file, which unpacks itself on every launch
+    icon = os.path.join(SPECPATH, 'icons', 'bigraph.ico') if sys.platform == 'win32' else None
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='Bigraph',
+              console=False, upx=False, icon=icon)
+    coll = COLLECT(exe, a.binaries, a.datas, name='Bigraph', upx=False)

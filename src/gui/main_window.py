@@ -4,11 +4,7 @@ Main GUI Window for Bigraph Cryptography System
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
-import sys
 import os
-
-# Add parent directory to path to import bigraph module
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from bigraph.key_manager import KeyManager
 from bigraph.conversation import ConversationManager, ConversationError
@@ -34,7 +30,6 @@ class BigramCryptoGUI:
         # Initialize key manager
         self.key_manager = KeyManager()
         self.conversations = ConversationManager(self.key_manager)
-        self.current_key = None
 
         # Create notebook (tabbed interface)
         self.notebook = ttk.Notebook(root)
@@ -244,7 +239,8 @@ class BigramCryptoGUI:
         for record in records:
             preview = record['plaintext'][:60]
             self.message_tree.insert('', 'end', iid=record['id'], values=(
-                record['partner'], record['direction'], record['sent'], record['expires'][:10], preview))
+                record['partner'], record['direction'], record['sent'].replace('T', ' ')[:16],
+                record['expires'][:10], preview))
 
     def delete_selected_message(self):
         selection = self.message_tree.selection()
@@ -761,13 +757,3 @@ class BigramCryptoGUI:
         self.symbol_text.insert(tk.END, "\n... and more\n")
         self.symbol_text.insert(tk.END, f"\nTotal symbols: {len(key['symbol_to_meaning'])}\n")
 
-
-def main():
-    """Main entry point"""
-    root = tk.Tk()
-    app = BigramCryptoGUI(root)
-    root.mainloop()
-
-
-if __name__ == '__main__':
-    main()

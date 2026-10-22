@@ -3,3 +3,5 @@
 pytest>=7.4
 pytest-cov>=4.1
 pyinstaller>=6.0
+# Only to redraw the app icon (packaging/make_icon.py)
+pillow>=10.0

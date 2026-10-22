@@ -9,10 +9,8 @@ and number handling.
 import re
 import secrets
 from collections import defaultdict
-from typing import List, Tuple, Dict, Optional
-from .constants import (BIGRAMS, SPACE_MARKERS, PARTIAL_MARKER,
-                       LETTERS, SPECIAL_CHARS,
-                       MATH_OPERATORS)
+from typing import List, Dict, Optional
+from .constants import SPACE_MARKERS, LETTERS, SPECIAL_CHARS, MATH_OPERATORS
 from .key_manager import KeyManager, RetiredKeyError
 from .security import format_message, parse_message
 

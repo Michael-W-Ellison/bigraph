@@ -1,15 +1,29 @@
-# Builds standalone apps (no Python needed) for Linux, Windows and macOS.
-# Run it from the Actions tab, or push a tag such as v1.0.0 to also attach the
-# apps to a GitHub release.
+# Builds standalone apps (no Python needed) and installers:
+#   Windows  Bigraph-Setup-<version>-windows-x86_64.exe, and a portable zip
+#   Linux    bigraph_<version>_amd64.deb, Bigraph-<version>-x86_64.AppImage,
+#            and a portable tar.gz
+#   macOS    a zipped Bigraph.app
+# Run it from the Actions tab, or push a tag such as v1.0.0 (matching
+# __version__ in src/bigraph/__init__.py) to also attach everything to a
+# GitHub release. The apps and installers are not signed yet.
 name: Build apps
 
 on:
   workflow_dispatch:
+    inputs:
+      test_release:
+        description: 'Also test the release step with a draft release (no tag is created; delete the draft afterwards)'
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
 permissions:
   contents: write
+
+env:
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: 46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1
 
 jobs:
   build:
@@ -25,16 +39,38 @@ jobs:
           - os: macos-latest
             artifact: Bigraph-macos-arm64
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
-      - name: Install Tk (Linux)
+      - name: Read version
+        run: |
+          # Read the file instead of importing bigraph, which needs the requirements
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+?)\"', open('src/bigraph/__init__.py').read()).group(1))")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "${GITHUB_REF#refs/tags/v}" != "$version" ]; then
+            echo "Tag ${GITHUB_REF#refs/tags/} does not match __version__ $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install build tools (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y tk8.6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tk8.6 desktop-file-utils
+          curl -sSL -o appimagetool "$APPIMAGETOOL_URL"
+          echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum --check
+          chmod +x appimagetool
+
+      - name: Install build tools (Windows)
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
 
       - name: Install requirements
         run: python -m pip install -r requirements-dev.txt
@@ -46,49 +82,94 @@ jobs:
         run: pyinstaller packaging/bigraph.spec --distpath dist --workpath build --noconfirm
 
       - name: Self test the built app
-        shell: bash
         run: |
           case "$RUNNER_OS" in
-            Windows) app=dist/Bigraph.exe ;;
+            Windows) app=dist/Bigraph/Bigraph.exe ;;
             macOS) app=dist/Bigraph.app/Contents/MacOS/Bigraph ;;
-            *) app=dist/Bigraph ;;
+            *) app=dist/Bigraph/Bigraph ;;
           esac
-          set +e
-          "$app" --self-test-report self-test.txt
-          code=$?
-          set -e
-          cat self-test.txt
-          # 0: everything works; 2: only the OS key store is missing, as on build servers
-          if [ "$code" != 0 ] && [ "$code" != 2 ]; then exit 1; fi
+          packaging/check_self_test.sh "$app"
 
-      - name: Package (Linux)
+      - name: Build installers (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.artifact }}.tar.gz -C dist Bigraph
+        run: |
+          packaging/linux/build_packages.sh "$VERSION" dist/Bigraph out ./appimagetool
+          tar -czf "out/${{ matrix.artifact }}-portable.tar.gz" -C dist Bigraph
 
-      - name: Package (Windows)
+      - name: Test installers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo dpkg -i "out/bigraph_${VERSION}_amd64.deb"
+          packaging/check_self_test.sh bigraph
+          sudo dpkg -r bigraph
+          test ! -e /opt/bigraph
+          APPIMAGE_EXTRACT_AND_RUN=1 packaging/check_self_test.sh "out/Bigraph-${VERSION}-x86_64.AppImage"
+
+      - name: Build installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/Bigraph.exe -DestinationPath ${{ matrix.artifact }}.zip
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" /Oout packaging\windows\bigraph.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Compress-Archive -Path dist\Bigraph -DestinationPath "out\${{ matrix.artifact }}-portable.zip"
+
+      - name: Install with the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'BigraphTest'
+          $setup = "out\Bigraph-Setup-$env:VERSION-windows-x86_64.exe"
+          Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir" -Wait
+          if (-not (Test-Path "$dir\Bigraph.exe")) { Write-Error 'The installer did not install Bigraph.exe'; exit 1 }
+
+      - name: Self test the installed app (Windows)
+        if: runner.os == 'Windows'
+        run: packaging/check_self_test.sh "$(cygpath -u "$RUNNER_TEMP")/BigraphTest/Bigraph.exe"
+
+      - name: Uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'BigraphTest'
+          Start-Process -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          # The uninstaller finishes in a separate process, so wait for it
+          for ($i = 0; $i -lt 30 -and (Test-Path "$dir\Bigraph.exe"); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path "$dir\Bigraph.exe") { Write-Error 'The uninstaller did not remove Bigraph.exe'; exit 1 }
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/Bigraph.app ${{ matrix.artifact }}.zip
+        run: |
+          mkdir -p out
+          ditto -c -k --keepParent dist/Bigraph.app "out/${{ matrix.artifact }}.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.*
+          path: out/*
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.test_release
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: apps
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
         with:
           files: apps/*
+
+      # A draft gets no git tag until it is published, so deleting it leaves nothing behind
+      - name: Test release (draft)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: softprops/action-gh-release@v3
+        with:
+          files: apps/*
+          draft: true
+          tag_name: test-${{ github.run_number }}
+          name: Test release ${{ github.run_number }} (draft, delete after checking)
+          target_commitish: ${{ github.sha }}

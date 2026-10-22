@@ -174,9 +174,6 @@ KEY_MAX_AGE_DAYS = 30
 # Days a message is kept before it is deleted, unless its sender sets another
 DEFAULT_RETENTION_DAYS = 30
 
-# Special marker for partial bigram usage
-PARTIAL_MARKER = '|'
-
 # Multiply/divide indicator
 MULTIPLY_DIVIDE_MARKER = 'MULDIV'
 
