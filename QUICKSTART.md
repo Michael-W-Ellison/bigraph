@@ -20,7 +20,7 @@ The apps and installers are not signed yet, so the first time you run one:
 
 - **Windows** may show "Windows protected your PC": click **More info**, then **Run anyway**.
 - **macOS** may say the app "cannot be opened": right-click (or Control-click) the app, choose **Open**, then **Open** again. Or open **System Settings > Privacy & Security** and click **Open Anyway**.
-- **Linux AppImage**: if it says FUSE is missing, run it with `APPIMAGE_EXTRACT_AND_RUN=1` in front of the command, or install your distribution's `libfuse2` package.
+- **Linux AppImage**: if it says FUSE is missing, install your distribution's `libfuse2` package. Or run it with `APPIMAGE_EXTRACT_AND_RUN=1` in front of the command; on a computer shared by several users, also add `TMPDIR=$HOME/.cache`, because without it the AppImage unpacks to a shared folder that only the first user can use.
 
 Uninstalling (from Add or Remove Programs on Windows, or `sudo apt remove
 bigraph` on Linux) removes the program but not your keys and messages. Delete

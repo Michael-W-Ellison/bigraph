@@ -185,9 +185,10 @@ class ConversationManager:
             return {'plaintext': BigramDecoder(key).decode(encoded), 'verified': verified,
                     'new_key': None, 'deleted_messages': [], 'deleted_keys': []}
 
-        message = open_message_v2(text, key)
-        if message['key_id'] != key.get('key_id'):
+        # Check the key first, so a message for another key is not reported as changed
+        if self.message_key_id(text) != key.get('key_id'):
             raise ConversationError("This message was written with a different key.")
+        message = open_message_v2(text, key)
         plaintext = BigramDecoder(key).decode(message['encoded'])
         sender_id = key.get('creator_id')
         control = message['control'] or {}

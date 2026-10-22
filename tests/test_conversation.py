@@ -214,6 +214,16 @@ def test_partner_copy_cannot_send(pair):
         bob.conv.send(copy, "Pretending to be Alice.", now=T0)
 
 
+def test_message_for_another_key_is_reported_as_such(pair, tmp_path):
+    """A message read with the wrong key is reported as needing another key, not as changed"""
+    alice, bob, key, copy = pair
+    bob_key = bob.new_key('Alice')
+    text = alice.conv.send(key, "Hello Bob.", now=T0)['text']
+
+    with pytest.raises(ConversationError, match="different key"):
+        bob.conv.receive(text, bob_key, now=T0)
+
+
 def test_changed_message_is_rejected(pair):
     alice, bob, key, copy = pair
     text = alice.conv.send(key, "Pay ten.", now=T0)['text']

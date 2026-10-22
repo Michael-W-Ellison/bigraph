@@ -239,7 +239,8 @@ class BigramCryptoGUI:
         for record in records:
             preview = record['plaintext'][:60]
             self.message_tree.insert('', 'end', iid=record['id'], values=(
-                record['partner'], record['direction'], record['sent'], record['expires'][:10], preview))
+                record['partner'], record['direction'], record['sent'].replace('T', ' ')[:16],
+                record['expires'][:10], preview))
 
     def delete_selected_message(self):
         selection = self.message_tree.selection()
