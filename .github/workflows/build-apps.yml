@@ -10,6 +10,11 @@ name: Build apps
 
 on:
   workflow_dispatch:
+    inputs:
+      test_release:
+        description: 'Also test the release step with a draft release (no tag is created; delete the draft afterwards)'
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
@@ -143,7 +148,7 @@ jobs:
           path: out/*
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.test_release
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -152,6 +157,19 @@ jobs:
           path: apps
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v3
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
         with:
           files: apps/*
+
+      # A draft gets no git tag until it is published, so deleting it leaves nothing behind
+      - name: Test release (draft)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: softprops/action-gh-release@v3
+        with:
+          files: apps/*
+          draft: true
+          tag_name: test-${{ github.run_number }}
+          name: Test release ${{ github.run_number }} (draft, delete after checking)
+          target_commitish: ${{ github.sha }}

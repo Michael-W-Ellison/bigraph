@@ -13,6 +13,10 @@ runs on, so each system's files are built on that system.
 - **With a version tag:** push a tag such as `v1.0.0` to also attach the files
   to a GitHub release for that tag. The tag must match `__version__` in
   `src/bigraph/__init__.py`, or the build stops.
+- **To test the release step:** run it from the Actions tab with **Also test
+  the release step** checked. The files are attached to a draft release named
+  "Test release <run number>", which only people with write access can see.
+  No tag is created. Delete the draft on the Releases page afterwards.
 
 Each build runs the tests, builds the app, and runs the built app's self test.
 It then builds the installers, installs each one, runs the self test on the
