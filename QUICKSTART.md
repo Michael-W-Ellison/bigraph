@@ -2,20 +2,29 @@
 
 ## Installation
 
-Download the app for your system from the project's Releases page. No Python
-is needed.
+Download the installer for your system from the project's Releases page
+(`<version>` is the release number, such as 1.0.0). No Python is needed.
 
-| System | File | To run |
+| System | File | To install |
 |---|---|---|
-| Windows (64-bit) | `Bigraph-windows-x86_64.zip` | Unzip, then double-click `Bigraph.exe` |
+| Windows (64-bit) | `Bigraph-Setup-<version>-windows-x86_64.exe` | Run it and follow the steps. It adds Bigraph to the Start Menu and to Add or Remove Programs; no administrator rights are needed. |
+| Debian, Ubuntu and similar (x86-64) | `bigraph_<version>_amd64.deb` | `sudo apt install ./bigraph_<version>_amd64.deb`, then start Bigraph from the applications menu or run `bigraph` |
+| Other Linux (x86-64) | `Bigraph-<version>-x86_64.AppImage` | `chmod +x Bigraph-<version>-x86_64.AppImage`, then run it. No installation needed. |
 | macOS (Apple Silicon) | `Bigraph-macos-arm64.zip` | Unzip, then open `Bigraph.app` |
-| Linux (x86-64) | `Bigraph-linux-x86_64.tar.gz` | `tar -xzf Bigraph-linux-x86_64.tar.gz` then `./Bigraph` |
 
-The apps are not signed, so the first time you open one:
+Portable versions that need no installation are also available:
+`Bigraph-windows-x86_64-portable.zip` (unzip, then run `Bigraph\Bigraph.exe`)
+and `Bigraph-linux-x86_64-portable.tar.gz` (unpack, then run `Bigraph/Bigraph`).
+
+The apps and installers are not signed yet, so the first time you run one:
 
 - **Windows** may show "Windows protected your PC": click **More info**, then **Run anyway**.
 - **macOS** may say the app "cannot be opened": right-click (or Control-click) the app, choose **Open**, then **Open** again. Or open **System Settings > Privacy & Security** and click **Open Anyway**.
-- **Linux**: if the file will not run, make it executable with `chmod +x Bigraph`.
+- **Linux AppImage**: if it says FUSE is missing, run it with `APPIMAGE_EXTRACT_AND_RUN=1` in front of the command, or install your distribution's `libfuse2` package.
+
+Uninstalling (from Add or Remove Programs on Windows, or `sudo apt remove
+bigraph` on Linux) removes the program but not your keys and messages. Delete
+those in the program first if you no longer want them.
 
 The program keeps the secrets that make deleted messages unrecoverable in your
 system's key store. Windows and macOS have one built in. On Linux you need a
